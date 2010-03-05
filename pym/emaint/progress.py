@@ -38,3 +38,28 @@ class ProgressHandler(object):
 		raise NotImplementedError(self)
 
 
+class ProgressBar(ProgressHandler):
+	"""Class to set up and return a Progress Bar"""
+
+	def __init__(self, isatty):
+		self.isatty = isatty
+		ProgressHandler.__init__(self)
+
+	def start(self):
+		if self.isatty:
+			self.progressBar = portage.output.TermProgressBar()
+			signal.signal(signal.SIGWINCH, self.sigwinch_handler)
+		else:
+			self.onProgress = None
+		return self.onProgress
+
+	def display(self):
+		self.progressBar.set(self.curval, self.maxval)
+
+	def sigwinch_handler(signum, frame):
+		lines, self.progressBar.term_columns = \
+			portage.output.get_term_size()
+
+	def stop(self):
+		signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+

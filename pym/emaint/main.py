@@ -4,7 +4,6 @@
 from __future__ import print_function
 
 
-import signal
 import sys
 import textwrap
 from optparse import OptionParser, OptionValueError
@@ -13,7 +12,7 @@ from optparse import OptionParser, OptionValueError
 import portage
 from portage import os
 from emaint.module import Modules
-from emaint.progress import ProgressHandler
+from emaint.progress import ProgressBar
 
 
 def usage(module_controller):
@@ -33,6 +32,46 @@ def usage(module_controller):
 			_usage += "  %s%s\n" % (mod.ljust(15),
 				module_controller.get_description(mod))
 		return _usage
+
+
+class TaskHandler(object):
+	"""Handles the running of the tasks it is given
+	"""
+
+	def __init__(self, show_progress_bar=True, verbose=True, callback=None):
+		self.show_progress_bar = show_progress_bar
+		self.verbose = verbose
+		self.callback = callback
+		self.isatty = os.environ.get('TERM') != 'dumb' and sys.stdout.isatty()
+		self.progress_bar = ProgressBar(self.isatty)
+
+	#def create_
+
+	def run_tasks(self, tasks, func, status, verbose=True):
+		"""Runs the module tasks"""
+		for task in tasks:
+			print(status % task.name(), func)
+			inst = task()
+			if self.show_progress_bar:
+				self.progress_bar.reset()
+				onProgress = self.progress_bar.start()
+			result = getattr(inst, func)(onProgress=onProgress)
+			if self.isatty and  self.show_progress_bar:
+				# make sure the final progress is displayed
+				self.progress_bar.display()
+				print()
+				self.progress_bar.stop()
+			if self.callback:
+				self.callback(result)
+
+
+def print_results(results):
+	if results:
+		print()
+		print("\n".join(results))
+		print("\n")
+
+	print("Finished")
 
 
 def emaint_main(myargv):
@@ -88,34 +127,6 @@ def emaint_main(myargv):
 		status = "Attempting to fix %s"
 		func = "fix"
 
-	isatty = os.environ.get('TERM') != 'dumb' and sys.stdout.isatty()
-	for task in tasks:
-		print(status % task.name())
-		inst = task()
-		onProgress = None
-		if isatty:
-			progressBar = portage.output.TermProgressBar()
-			progressHandler = ProgressHandler()
-			onProgress = progressHandler.onProgress
-			def display():
-				progressBar.set(progressHandler.curval, progressHandler.maxval)
-			progressHandler.display = display
-			def sigwinch_handler(signum, frame):
-				lines, progressBar.term_columns = \
-					portage.output.get_term_size()
-			signal.signal(signal.SIGWINCH, sigwinch_handler)
-		result = getattr(inst, func)(onProgress=onProgress)
-		if isatty:
-			# make sure the final progress is displayed
-			progressHandler.display()
-			print()
-			signal.signal(signal.SIGWINCH, signal.SIG_DFL)
-		if result:
-			print()
-			print("\n".join(result))
-			print("\n")
+	taskmaster = TaskHandler(callback=print_results)
+	taskmaster.run_tasks(tasks, func, status)
 
-	print("Finished")
-
-if __name__ == "__main__":
-	emaint_main(sys.argv[1:])
