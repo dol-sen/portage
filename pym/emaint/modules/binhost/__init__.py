@@ -20,7 +20,8 @@ module_spec = {
 			'name': "binhost",
 			'class': "BinhostHandler",
 			'description':  "Generate a metadata index for binary packages",
-			'options': ['check', 'fix']
+			'functions': ['check', 'fix'],
+			'func_desc': {}
 			}
 		}
 	}

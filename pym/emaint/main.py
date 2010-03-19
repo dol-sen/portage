@@ -47,10 +47,11 @@ class TaskHandler(object):
 
 	#def create_
 
-	def run_tasks(self, tasks, func, status, verbose=True):
+	def run_tasks(self, tasks, func, status=None, verbose=True):
 		"""Runs the module tasks"""
 		for task in tasks:
-			print(status % task.name(), func)
+			if status:
+				print(status % task.name(), func)
 			inst = task()
 			if self.show_progress_bar:
 				self.progress_bar.reset()

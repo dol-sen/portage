@@ -14,15 +14,16 @@ from emaint.modules.world.world import WorldHandler
 
 
 module_spec = {
-    'name': 'world',
-    'description': "Provides functions to scan, " +
-        "check and fix problems in the world file",
-    'provides':{
-        'module1':{
-            'name': "world",
-            'class': "WorldHandler",
-            'description':  "Fix problems in the world file",
-            'options': ['check', 'fix']
-            }
-        }
-    }
+	'name': 'world',
+	'description': "Provides functions to scan, " +
+		"check and fix problems in the world file",
+	'provides':{
+		'module1':{
+			'name': "world",
+			'class': "WorldHandler",
+			'description':  "Fix problems in the world file",
+			'functions': ['check', 'fix'],
+			'func_desc': {}
+			}
+		}
+	}

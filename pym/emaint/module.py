@@ -157,17 +157,32 @@ class Modules(object):
 				%modname + "found")
 		return mod
 
-	def get_options(self, modname):
-		"""Retrieves the module class decription
+	def get_functions(self, modname):
+		"""Retrieves the module class  exported functions
 
 		@type modname: string
 		@param modname: the module class name
 		@type list
-		@return: the modules class options
+		@return: the modules class exported functions
 		"""
 		if modname and modname in self.module_names:
-			mod = self.modules[modname]['options']
+			mod = self.modules[modname]['functions']
 		else:
 			raise InvalidModuleName("Module name '%s' was invalid or not"
 				%modname + "found")
 		return mod
+
+	def get_func_descriptions(self, modname):
+		"""Retrieves the module class  exported functions descriptions
+
+		@type modname: string
+		@param modname: the module class name
+		@type list
+		@return: the modules class exported functions descriptions
+		"""
+		if modname and modname in self.module_names:
+			desc = self.modules[modname]['func_desc']
+		else:
+			raise InvalidModuleName("Module name '%s' was invalid or not"
+				%modname + "found")
+		return desc

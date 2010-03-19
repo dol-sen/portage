@@ -12,16 +12,17 @@
 
 
 module_spec = {
-    'name': "vdbkey",
-    'description': "Provides functions to scan, check and " + \
-        'fix: Installed package data ["HOMEPAGE", "SRC_URI", "KEYWORDS", "DESCRIPTION"]',
-    'provides':{
-        'module1': {
-            'name': "vdbkeys",
-            'class': "VdbKeyHandler",
-            'description':  "Perform checks and fixes problems with an " + \
-                "installed package's data",
-            'options': ['check', 'fix']
-            }
-        }
-    }
+	'name': "vdbkey",
+	'description': "Provides functions to scan, check and " + \
+		'fix: Installed package data ["HOMEPAGE", "SRC_URI", "KEYWORDS", "DESCRIPTION"]',
+	'provides':{
+		'module1': {
+			'name': "vdbkeys",
+			'class': "VdbKeyHandler",
+			'description':  "Perform checks and fixes problems with an " + \
+				"installed package's data",
+			'functions': ['check', 'fix'],
+			'func_desc': {}
+			}
+		}
+	}

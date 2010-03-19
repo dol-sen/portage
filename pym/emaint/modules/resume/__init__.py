@@ -20,7 +20,8 @@ module_spec = {
 			'name': "cleanresume",
 			'class': "CleanResume",
 			'description':  "Discard emerge --resume merge lists",
-			'options': ['check', 'fix']
+			'functions': ['check', 'fix'],
+			'func_desc': {}
 			}
 		}
 	}

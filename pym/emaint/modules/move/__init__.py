@@ -21,13 +21,18 @@ module_spec = {
 			'name': "moveinst",
 			'class': "MoveInstalled",
 			'description': "Perform package move updates for installed packages",
-			'options': ['check', 'fix']
+			'options': ['check', 'fix'],
+			'functions': ['check', 'fix'],
+			'func_desc': {
+				}
 			},
 		'module2':{
 			'name': "movebin",
 			'class': "MoveBinary",
 			'description': "Perform package move updates for binary packages",
-			'options': ['check', 'fix']
+			'functions': ['check', 'fix'],
+			'func_desc': {
+				}
 			}
 		}
 	}
