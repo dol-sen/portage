@@ -11,6 +11,7 @@ from __future__ import print_function
 
 from portage import os
 from portage.exception import PortageException
+from portage.cache.mappings import ProtectedDict
 
 
 class InvalidModuleName(PortageException):
@@ -18,17 +19,17 @@ class InvalidModuleName(PortageException):
 
 
 class Module(object):
-	"""Class to define and hold our plug-in modules
+	"""Class to define and hold our plug-in module
 
 	@type name: string
 	@param name: the module name
 	@type path: the path to the new module
 	"""
 
-	def __init__(self, name, path):
+	def __init__(self, name, namepath):
 		"""Some variables initialization"""
 		self.name = name
-		self.path = path
+		self._namepath = namepath
 		self.kids_names = []
 		self.initialized = self._initialize()
 
@@ -37,22 +38,19 @@ class Module(object):
 
 		@rtype: boolean
 		"""
+		self.valid = False
 		try:
-			os.chdir(self.path)
-			mod_name = ".".join(["emaint", "modules", self.name])
+			mod_name = ".".join([self._namepath, self.name])
 			self._module = __import__(mod_name, [],[], ["not empty"])
 			self.valid = True
 		except ImportError, e:
-			self.valid = False
 			return False
 		self.module_spec = self._module.module_spec
-		#self._module.get_class = self.get_class
 		self.kids = {}
 		for submodule in self.module_spec['provides']:
 			kid = self.module_spec['provides'][submodule]
 			kidname = kid['name']
 			kid['module_name'] = '.'.join([mod_name, self.name])
-			#kid['parent'] = self._module
 			kid['is_imported'] = False
 			self.kids[kidname] = kid
 			self.kids_names.append(kidname)
@@ -82,41 +80,50 @@ class Modules(object):
 
 	@param path: Optional path to the "modules" directory or
 			defaults to the directory of this file + '/modules'
+	@param namepath: Optional python import path to the "modules" directory or
+			defaults to the directory name of this file + '.modules'
 	"""
 
-	def __init__(self, path=None):
+	def __init__(self, path=None, namepath=None):
 		if path:
-			self.module_path = path
+			self._module_path = path
 		else:
-			self.module_path = os.path.join((
+			self._module_path = os.path.join((
 				os.path.dirname(os.path.realpath(__file__))), "modules")
-		self.modules = self._get_all_modules()
-		self.module_names = list(self.modules)
-		self.module_names.sort()
+		if namepath:
+			self._namepath = namepath
+		else:
+			self._namepath = '.'.join(os.path.dirname(
+				os.path.realpath(__file__)), "modules")
+		self._modules = self._get_all_modules()
+		self.modules = ProtectedDict(self._modules)
+		self.module_names = sorted(self._modules)
+		#self.modules = {}
+		#for mod in self.module_names:
+			#self.module[mod] = LazyLoad(
 
 	def _get_all_modules(self):
 		"""scans the emaint modules dir for loadable modules
 
 		@rtype: dictionary of module_plugins
 		"""
-		module_dir =  self.module_path
+		module_dir =  self._module_path
 		importables = []
 		names = os.listdir(module_dir)
 		for entry in names:
-			if os.path.isdir(os.path.join(module_dir, entry)):
-				try:
-					statinfo = os.stat(os.path.join(module_dir, entry, '__init__.py'))
-					if statinfo.st_nlink == 1:
-						importables.append(entry)
-				except EnvironmentError, er:
-					pass
-		os.chdir(module_dir)
+			try:
+				# test for statinfo to ensure it should a real module
+				# it will bail if it errors
+				statinfo = os.lstat(os.path.join(module_dir, entry, '__init__.py'))
+				importables.append(entry)
+			except EnvironmentError, er:
+				pass
 		kids = {}
 		for entry in importables:
-			new = Module(entry, module_dir) #, self)
-			for module_name in new.kids:
-				kid = new.kids[module_name]
-				kid['parent'] = new
+			new_module = Module(entry, self._namepath) 
+			for module_name in new_module.kids:
+				kid = new_module.kids[module_name]
+				kid['parent'] = new_module
 				kids[kid['name']] = kid
 		return kids
 
@@ -136,7 +143,7 @@ class Modules(object):
 		@param modname: the module class name
 		"""
 		if modname and modname in self.module_names:
-			mod = self.modules[modname]['parent'].get_class(modname)
+			mod = self._modules[modname]['parent'].get_class(modname)
 		else:
 			raise InvalidModuleName("Module name '%s' was invalid or not"
 				%modname + "found")
@@ -151,22 +158,22 @@ class Modules(object):
 		@return: the modules class decription
 		"""
 		if modname and modname in self.module_names:
-			mod = self.modules[modname]['description']
+			mod = self._modules[modname]['description']
 		else:
 			raise InvalidModuleName("Module name '%s' was invalid or not"
 				%modname + "found")
 		return mod
 
 	def get_functions(self, modname):
-		"""Retrieves the module class  exported functions
+		"""Retrieves the module class  exported function names
 
 		@type modname: string
 		@param modname: the module class name
 		@type list
-		@return: the modules class exported functions
+		@return: the modules class exported function names
 		"""
 		if modname and modname in self.module_names:
-			mod = self.modules[modname]['functions']
+			mod = self._modules[modname]['functions']
 		else:
 			raise InvalidModuleName("Module name '%s' was invalid or not"
 				%modname + "found")
@@ -181,7 +188,7 @@ class Modules(object):
 		@return: the modules class exported functions descriptions
 		"""
 		if modname and modname in self.module_names:
-			desc = self.modules[modname]['func_desc']
+			desc = self._modules[modname]['func_desc']
 		else:
 			raise InvalidModuleName("Module name '%s' was invalid or not"
 				%modname + "found")

@@ -45,7 +45,6 @@ class TaskHandler(object):
 		self.isatty = os.environ.get('TERM') != 'dumb' and sys.stdout.isatty()
 		self.progress_bar = ProgressBar(self.isatty)
 
-	#def create_
 
 	def run_tasks(self, tasks, func, status=None, verbose=True):
 		"""Runs the module tasks"""
@@ -82,7 +81,7 @@ def emaint_main(myargv):
 	os.umask(0o22)
 
 	osp = os.path
-	module_controller = Modules()
+	module_controller = Modules(namepath="emaint.modules")
 	modules = module_controller.modules
 	module_names = module_controller.module_names[:]
 	module_names.insert(0, "all")
