@@ -120,7 +120,7 @@ class Modules(object):
 				pass
 		kids = {}
 		for entry in importables:
-			new_module = Module(entry, self._namepath) 
+			new_module = Module(entry, self._namepath)
 			for module_name in new_module.kids:
 				kid = new_module.kids[module_name]
 				kid['parent'] = new_module
@@ -184,7 +184,7 @@ class Modules(object):
 
 		@type modname: string
 		@param modname: the module class name
-		@type list
+		@type dictionary
 		@return: the modules class exported functions descriptions
 		"""
 		if modname and modname in self.module_names:

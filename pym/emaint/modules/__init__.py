@@ -10,4 +10,3 @@
 of adding/removing modules to perform checks and maintenance
 on a gentoo system.
 """
-

@@ -13,6 +13,60 @@ import portage
 from portage import os
 from emaint.module import Modules
 from emaint.progress import ProgressBar
+from emaint.defaults import DEFAULT_OPTIONS
+
+class OptionItem(object):
+	"""class to hold module OptionParser options data
+	"""
+
+	def __init__(self, opt, parser):
+		"""
+		@type opt: dictionary
+		@param opt: options parser options
+		"""
+		self.parser = parser
+		self.short = opt['short']
+		self.long = opt['long']
+		self.help = opt['help']
+		self.status = opt['status']
+		self.func = opt['func']
+		if 'action' in opt:
+			self.action = opt['action']
+		else:
+			self.action = "callback"
+		if 'callback' in opt:
+			self.callback = opt['callback']
+		else:
+			self.callback = self._exclusive
+		if 'callback_kwargs' in opt:
+			self.callback_kwargs = opt['callback_kwargs']
+		else:
+			self.callback_kwargs = {"var":"action"}
+
+
+	def _exclusive(self, option, *args, **kw):
+		"""Generic check for the 2 default options
+		"""
+		var = kw.get("var", None)
+		if var is None:
+			raise ValueError("var not specified to exclusive()")
+		if getattr(self.parser, var, ""):
+			raise OptionValueError("%s and %s are exclusive options"
+				% (getattr(self.parser, var), option))
+		setattr(self.parser, var, str(option))
+
+	def check_action(self, action):
+		"""Checks if 'action' is the same as this option
+
+		@type action: string
+		@param action: the action to compare
+		@rtype: boolean
+		"""
+		if action == self.action:
+			return True
+		elif action == '/'.join([self.short, self.long]):
+			return True
+		return False
 
 
 def usage(module_controller):
@@ -48,6 +102,8 @@ class TaskHandler(object):
 
 	def run_tasks(self, tasks, func, status=None, verbose=True):
 		"""Runs the module tasks"""
+		if tasks is None or func is None:
+			return
 		for task in tasks:
 			if status:
 				print(status % task.name(), func)
@@ -86,19 +142,21 @@ def emaint_main(myargv):
 	module_names = module_controller.module_names[:]
 	module_names.insert(0, "all")
 
-	def exclusive(option, *args, **kw):
-		var = kw.get("var", None)
-		if var is None:
-			raise ValueError("var not specified to exclusive()")
-		if getattr(parser, var, ""):
-			raise OptionValueError("%s and %s are exclusive options" % (getattr(parser, var), option))
-		setattr(parser, var, str(option))
 
 	parser = OptionParser(usage=usage(module_controller), version=portage.VERSION)
-	parser.add_option("-c", "--check", help="check for problems",
-		action="callback", callback=exclusive, callback_kwargs={"var":"action"})
-	parser.add_option("-f", "--fix", help="attempt to fix problems",
-		action="callback", callback=exclusive, callback_kwargs={"var":"action"})
+	# add default options
+	parser_options = []
+	for opt in DEFAULT_OPTIONS:
+		parser_options.append(OptionItem(opt, parser))
+	for mod in module_names[1:]:
+		desc = module_controller.get_func_descriptions(mod)
+		if desc:
+			for opt in desc:
+				parser_options.append(OptionItem(desc[opt], parser))
+	for opt in parser_options:
+		parser.add_option(opt.short, opt.long, help=opt.help, action=opt.action,
+			callback=opt.callback, callback_kwargs=opt.callback_kwargs)
+
 	parser.action = None
 
 	(options, args) = parser.parse_args(args=myargv)
@@ -120,12 +178,12 @@ def emaint_main(myargv):
 	else:
 		tasks = [module_controller.get_class(args[0] )]
 
-	if action == "-c/--check":
-		status = "Checking %s for problems"
-		func = "check"
-	else:
-		status = "Attempting to fix %s"
-		func = "fix"
+	func = status = None
+	for opt in parser_options:
+		if opt.check_action(action):
+			status = opt.status
+			func = opt.func
+			break
 
 	taskmaster = TaskHandler(callback=print_results)
 	taskmaster.run_tasks(tasks, func, status)
