@@ -1335,7 +1335,7 @@ def action_info(settings, trees, myopts, myfiles):
 			print("[disabled]")
 
 	myvars  = ["sys-devel/autoconf", "sys-devel/automake", "virtual/os-headers",
-	           "sys-devel/binutils", "sys-devel/libtool",  "dev-lang/python"]
+			   "sys-devel/binutils", "sys-devel/libtool",  "dev-lang/python"]
 	myvars += portage.util.grabfile(settings["PORTDIR"]+"/profiles/info_pkgs")
 	myvars  = portage.util.unique_array(myvars)
 	myvars.sort()
@@ -1358,7 +1358,7 @@ def action_info(settings, trees, myopts, myfiles):
 					repo_suffix = "::<unknown repository>"
 				else:
 					repo_suffix = "::" + repo
-				
+
 				matched_cp = portage.versions.cpv_getkey(cpv)
 				if matched_cp == x:
 					provide_suffix = ""
@@ -1401,12 +1401,12 @@ def action_info(settings, trees, myopts, myfiles):
 		myvars = list(settings)
 	else:
 		myvars = ['GENTOO_MIRRORS', 'CONFIG_PROTECT', 'CONFIG_PROTECT_MASK',
-		          'PORTDIR', 'DISTDIR', 'PKGDIR', 'PORTAGE_TMPDIR',
-		          'PORTDIR_OVERLAY', 'PORTAGE_BUNZIP2_COMMAND',
-		          'PORTAGE_BZIP2_COMMAND',
-		          'USE', 'CHOST', 'CFLAGS', 'CXXFLAGS',
-		          'ACCEPT_KEYWORDS', 'ACCEPT_LICENSE', 'SYNC', 'FEATURES',
-		          'EMERGE_DEFAULT_OPTS']
+				  'PORTDIR', 'DISTDIR', 'PKGDIR', 'PORTAGE_TMPDIR',
+				  'PORTDIR_OVERLAY', 'PORTAGE_BUNZIP2_COMMAND',
+				  'PORTAGE_BZIP2_COMMAND',
+				  'USE', 'CHOST', 'CFLAGS', 'CXXFLAGS',
+				  'ACCEPT_KEYWORDS', 'ACCEPT_LICENSE', 'SYNC', 'FEATURES',
+				  'EMERGE_DEFAULT_OPTS']
 
 		myvars.extend(portage.util.grabfile(settings["PORTDIR"]+"/profiles/info_vars"))
 
@@ -1874,8 +1874,38 @@ def action_search(root_config, myopts, myfiles, spinner):
 			searchinstance.output()
 
 def action_sync(settings, trees, mtimedb, myopts, myaction):
+
+	def _init_layman():
+		"""sets up our LaymanAPI and returns an instance of it"""
+		try:
+			from layman.api import LaymanAPI
+			from layman.config import BareConfig
+			from layman.output import Message
+		except ImportError:
+			return None
+		message = Message()
+		config = BareConfig(output=message)
+		config.set_option('quietness', settings['quiet']==True or 4)
+		_layman = LaymanAPI(config,
+							 report_errors=True,
+							 output=config['output']
+							)
+		return _layman
+
 	enter_invalid = '--ask-enter-invalid' in myopts
 	xterm_titles = "notitles" not in settings.features
+	do_layman_sync = "layman-sync" in settings.features
+	if do_layman_sync:
+		emergelog(xterm_titles, " === Layman sync")
+		_layman = _init_layman()
+		if _layman:
+			try:
+				result = _layman.sync(_layman.get_installed())
+			except Exception, error:
+				for _error in self.api.get_errors():
+					sys.stderr.write(_error)
+				sys.exit(1)
+
 	emergelog(xterm_titles, " === sync")
 	portdb = trees[settings["ROOT"]]["porttree"].dbapi
 	myportdir = portdb.porttree_root
@@ -2052,7 +2082,7 @@ def action_sync(settings, trees, mtimedb, myopts, myaction):
 		if "--quiet" in myopts:
 			rsync_opts.append("--quiet")    # Shut up a lot
 		else:
-			rsync_opts.append("--verbose")	# Print filelist
+			rsync_opts.append("--verbose")  # Print filelist
 
 		if "--verbose" in myopts:
 			rsync_opts.append("--progress")  # Progress meter for each file
