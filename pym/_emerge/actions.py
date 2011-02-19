@@ -1878,21 +1878,15 @@ def action_sync(settings, trees, mtimedb, myopts, myaction):
 	def _init_layman():
 		"""sets up our LaymanAPI and returns an instance of it"""
 		try:
-			from layman.api import LaymanAPI
-			from layman.config import BareConfig
-			from layman.output import Message
+			from layman import Layman
 		except ImportError:
 			sys.stderr.write("!!! Layman import failed. set Features='-layman-sync'" 
 				"or 'emerge >=app-portage/layman-1.5.0' for emerge to sync overlays")
 			return None
-		message = Message()
-		config = BareConfig(output=message)
-		config.set_option('quiet', settings['quiet'])
-		config.set_option('nocolor', settings['nocolor'])
-		_layman = LaymanAPI(config,
-							 report_errors=True,
-							 output=config['output']
-							)
+		_layman = Layman(report_errors=True,
+						quiet=settings['quiet'],
+						nocolor=settings['nocolor']
+						)
 		return _layman
 
 	enter_invalid = '--ask-enter-invalid' in myopts
