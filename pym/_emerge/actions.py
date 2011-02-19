@@ -1882,10 +1882,13 @@ def action_sync(settings, trees, mtimedb, myopts, myaction):
 			from layman.config import BareConfig
 			from layman.output import Message
 		except ImportError:
+			sys.stderr.write("!!! Layman import failed. set Features='-layman-sync'" 
+				"or 'emerge >=app-portage/layman-1.5.0' for emerge to sync overlays")
 			return None
 		message = Message()
 		config = BareConfig(output=message)
-		config.set_option('quietness', settings['quiet']==True or 4)
+		config.set_option('quiet', settings['quiet'])
+		config.set_option('nocolor', settings['nocolor'])
 		_layman = LaymanAPI(config,
 							 report_errors=True,
 							 output=config['output']
@@ -1894,17 +1897,20 @@ def action_sync(settings, trees, mtimedb, myopts, myaction):
 
 	enter_invalid = '--ask-enter-invalid' in myopts
 	xterm_titles = "notitles" not in settings.features
-	do_layman_sync = "layman-sync" in settings.features
-	if do_layman_sync:
-		emergelog(xterm_titles, " === Layman sync")
+	if "layman-sync" in settings.features:
+		emergelog(xterm_titles, " === Layman sync ===")
 		_layman = _init_layman()
 		if _layman:
-			try:
-				result = _layman.sync(_layman.get_installed())
-			except Exception, error:
-				for _error in self.api.get_errors():
-					sys.stderr.write(_error)
-				sys.exit(1)
+			overlays= _layman.get_installed()
+			for ovl in overlays:
+				print(">>> Syncing overlay:", ovl)
+				try:
+					result = _layman.sync(ovl)
+				except Exception, error:
+					for _error in _layman.get_errors():
+						sys.stderr.write(_error)
+					sys.exit(1)
+				print()
 
 	emergelog(xterm_titles, " === sync")
 	portdb = trees[settings["ROOT"]]["porttree"].dbapi
