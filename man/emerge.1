@@ -89,8 +89,9 @@ to get around escaping problems.
 .BR "No action"
 If no action is specified, the action is to merge in the specified
 packages, satisfying any dependencies that they may have.  The
-arguments can be \fIebuilds\fR, \fItbz2s\fR, \fIsets\fR, or
-\fIatoms\fR.  \fBNote that you need to use the \-\-usepkg 
+arguments can be \fIatoms\fR, \fIsets\fR, installed \fIfiles\fR,
+\fIebuilds\fR, or \fItbz2s\fR.
+\fBNote that you need to use the \-\-usepkg
 option if you want to install a tbz2\fR.  The packages are added
 to the \fBworld\fR file at the end, so that they are considered for
 later updating.
@@ -119,7 +120,11 @@ always be kept. They can be manually added to this set with \fIemerge
 \-\-noreplace <atom>\fR. As a safety measure, depclean will not remove any
 packages unless *all* required dependencies have been resolved. As a
 consequence, it is often necessary to run \fIemerge \-\-update \-\-newuse
-\-\-deep @world\fR prior to depclean. 
+\-\-deep @world\fR prior to depclean. Also note that
+depclean may break link level dependencies, especially when the
+\fB\-\-depclean\-lib\-check\fR option is disabled. Thus, it is
+recommended to use a tool such as \fBrevdep-rebuild\fR(1)
+in order to detect such breakage.
 
 \fBWARNING:\fR
 Inexperienced users are advised to use \fB\-\-pretend\fR with this
@@ -367,7 +372,7 @@ required.
 .TP
 .BR "\-\-depclean\-lib\-check [ y | n ]"
 Account for library link-level dependencies during
-\fB-\-depclean\fR and \fB-\-prune\fR actions. This
+\fB\-\-depclean\fR and \fB\-\-prune\fR actions. This
 option is enabled by default. In some cases this can
 be somewhat time\-consuming.
 .TP

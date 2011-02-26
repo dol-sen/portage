@@ -2118,12 +2118,23 @@ def action_sync(settings, trees, mtimedb, myopts, myaction):
 			maxretries = -1 #default number of retries
 
 		retries=0
-		proto, user_name, hostname, port = re.split(
-			"(rsync|ssh)://([^:/]+@)?([^:/]*)(:[0-9]+)?", syncuri, maxsplit=4)[1:5]
+		try:
+			proto, user_name, hostname, port = re.split(
+				r"(rsync|ssh)://([^:/]+@)?(\[[:\da-fA-F]*\]|[^:/]*)(:[0-9]+)?",
+				syncuri, maxsplit=4)[1:5]
+		except ValueError:
+			writemsg_level("!!! SYNC is invalid: %s\n" % syncuri,
+				noiselevel=-1, level=logging.ERROR)
+			return 1
 		if port is None:
 			port=""
 		if user_name is None:
 			user_name=""
+		if re.match(r"^\[[:\da-fA-F]*\]$", hostname) is None:
+			getaddrinfo_host = hostname
+		else:
+			# getaddrinfo needs the brackets stripped
+			getaddrinfo_host = hostname[1:-1]
 		updatecache_flg=True
 		all_rsync_opts = set(rsync_opts)
 		extra_rsync_opts = portage.util.shlex_split(
@@ -2142,7 +2153,7 @@ def action_sync(settings, trees, mtimedb, myopts, myaction):
 
 		try:
 			addrinfos = getaddrinfo_validate(
-				socket.getaddrinfo(hostname, None,
+				socket.getaddrinfo(getaddrinfo_host, None,
 				family, socket.SOCK_STREAM))
 		except socket.error as e:
 			writemsg_level(
@@ -2974,9 +2985,18 @@ def chk_updated_cfg_files(eroot, config_protect):
 	for x in result:
 		print("\n"+colorize("WARN", " * IMPORTANT:"), end=' ')
 		if not x[1]: # it's a protected file
-			print("config file '%s' needs updating." % x[0])
+			writemsg_level("config file '%s' needs updating.\n" % x[0],
+				level=logging.INFO, noiselevel=-1)
 		else: # it's a protected dir
-			print("%d config files in '%s' need updating." % (len(x[1]), x[0]))
+			if len(x[1]) == 1:
+				head, tail = os.path.split(x[1][0])
+				tail = tail[len("._cfg0000_"):]
+				fpath = os.path.join(head, tail)
+				writemsg_level("config file '%s' needs updating.\n" % fpath,
+					level=logging.INFO, noiselevel=-1)
+			else:
+				writemsg_level("%d config files in '%s' need updating.\n" % \
+					(len(x[1]), x[0]), level=logging.INFO, noiselevel=-1)
 
 	if result:
 		print(" "+yellow("*")+" See the "+colorize("INFORM","CONFIGURATION FILES")\

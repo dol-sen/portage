@@ -292,7 +292,8 @@ def display_preserved_libs(vardbapi, myopts):
 					print(colorize("WARN", " * ") + "     used by %d other files" % (len(consumers) - MAX_DISPLAY))
 		print("Use " + colorize("GOOD", "emerge @preserved-rebuild") + " to rebuild packages using these libraries")
 
-def post_emerge(root_config, myopts, mtimedb, retval):
+def post_emerge(myaction, myopts, myfiles,
+	target_root, trees, mtimedb, retval):
 	"""
 	Misc. things to run at the end of a merge session.
 
@@ -303,6 +304,14 @@ def post_emerge(root_config, myopts, mtimedb, retval):
 	Display preserved libs warnings
 	Exit Emerge
 
+	@param myaction: The action returned from parse_opts()
+	@type myaction: String
+	@param myopts: emerge options
+	@type myopts: dict
+	@param myfiles: emerge arguments
+	@type myfiles: list
+	@param target_root: The target ROOT for myaction
+	@type target_root: String
 	@param trees: A dictionary mapping each ROOT to it's package databases
 	@type trees: dict
 	@param mtimedb: The mtimeDB to store data needed across merge invocations
@@ -314,8 +323,7 @@ def post_emerge(root_config, myopts, mtimedb, retval):
 	1.  Calls sys.exit(retval)
 	"""
 
-	target_root = root_config.root
-	trees = { target_root : root_config.trees }
+	root_config = trees[target_root]["root_config"]
 	vardbapi = trees[target_root]["vartree"].dbapi
 	settings = vardbapi.settings
 	info_mtimes = mtimedb["info"]
@@ -376,7 +384,20 @@ def post_emerge(root_config, myopts, mtimedb, retval):
 			writemsg_level(
 				" %s spawn failed of %s\n" % (bad("*"), postemerge,),
 				level=logging.ERROR, noiselevel=-1)
+
+	if "--quiet" not in myopts and \
+		myaction is None and "@world" in myfiles:
+		show_depclean_suggestion()
+
 	sys.exit(retval)
+
+def show_depclean_suggestion():
+	out = portage.output.EOutput()
+	msg = "After world updates, it is important to remove " + \
+		"obsolete packages with emerge --depclean. Refer " + \
+		"to `man emerge` for more information."
+	for line in textwrap.wrap(msg, 72):
+		out.ewarn(line)
 
 def multiple_actions(action1, action2):
 	sys.stderr.write("\n!!! Multiple actions requested... Please choose one only.\n")
@@ -1637,7 +1658,8 @@ def emerge_main():
 		rval = action_uninstall(settings, trees, mtimedb["ldpath"],
 			myopts, myaction, myfiles, spinner)
 		if not (myaction == 'deselect' or buildpkgonly or fetchonly or pretend):
-			post_emerge(root_config, myopts, mtimedb, rval)
+			post_emerge(myaction, myopts, myfiles, settings["ROOT"],
+				trees, mtimedb, rval)
 		return rval
 
 	elif myaction == 'info':
@@ -1708,7 +1730,7 @@ def emerge_main():
 			display_news_notification(root_config, myopts)
 		retval = action_build(settings, trees, mtimedb,
 			myopts, myaction, myfiles, spinner)
-		root_config = trees[settings["ROOT"]]["root_config"]
-		post_emerge(root_config, myopts, mtimedb, retval)
+		post_emerge(myaction, myopts, myfiles, settings["ROOT"],
+			trees, mtimedb, retval)
 
 		return retval

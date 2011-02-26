@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 1999-2010 Gentoo Foundation
+# Copyright 1999-2011 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 PORTAGE_BIN_PATH="${PORTAGE_BIN_PATH:-/usr/lib/portage/bin}"
@@ -671,7 +671,7 @@ _eapi4_src_install() {
 		emake DESTDIR="${D}" install
 	fi
 
-	if [[ -z $DOCS ]] ; then
+	if ! declare -p DOCS &>/dev/null ; then
 		local d
 		for d in README* ChangeLog AUTHORS NEWS TODO CHANGES \
 				THANKS BUGS FAQ CREDITS CHANGELOG ; do
@@ -916,7 +916,7 @@ docompress() {
 			f=$(strip_duplicate_slashes "${f}"); f=${f%/}
 			[[ ${f:0:1} = / ]] || f="/${f}"
 			for g in "${PORTAGE_DOCOMPRESS_SKIP[@]}"; do
-				[[ ${f} = ${g} ]] && continue 2
+				[[ ${f} = "${g}" ]] && continue 2
 			done
 			PORTAGE_DOCOMPRESS_SKIP[${#PORTAGE_DOCOMPRESS_SKIP[@]}]=${f}
 		done
@@ -925,7 +925,7 @@ docompress() {
 			f=$(strip_duplicate_slashes "${f}"); f=${f%/}
 			[[ ${f:0:1} = / ]] || f="/${f}"
 			for g in "${PORTAGE_DOCOMPRESS[@]}"; do
-				[[ ${f} = ${g} ]] && continue 2
+				[[ ${f} = "${g}" ]] && continue 2
 			done
 			PORTAGE_DOCOMPRESS[${#PORTAGE_DOCOMPRESS[@]}]=${f}
 		done
@@ -1152,9 +1152,6 @@ dyn_install() {
 	#our custom version of libtool uses $S and $D to fix
 	#invalid paths in .la files
 	export S D
-	#some packages uses an alternative to $S to build in, cause
-	#our libtool to create problematic .la files
-	export PWORKDIR="$WORKDIR"
 
 	# Reset exeinto(), docinto(), insinto(), and into() state variables
 	# in case the user is running the install phase multiple times
@@ -2244,9 +2241,6 @@ ebuild_main() {
 			#our custom version of libtool uses $S and $D to fix
 			#invalid paths in .la files
 			export S D
-			#some packages use an alternative to $S to build in, cause
-			#our libtool to create problematic .la files
-			export PWORKDIR=$WORKDIR
 
 			;;
 		esac
