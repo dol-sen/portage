@@ -19,12 +19,12 @@ class VdbKeyHandler(object):
 	name = staticmethod(name)
 
 	def __init__(self):
-		self.list = portage.db["/"]["vartree"].dbapi.cpv_all()
+		self.list = portage.db[portage.settings["EROOT"]]["vartree"].dbapi.cpv_all()
 		self.missing = []
 		self.keys = ["HOMEPAGE", "SRC_URI", "KEYWORDS", "DESCRIPTION"]
 
 		for p in self.list:
-			mydir = os.path.join(os.sep, portage.settings["ROOT"], portage.const.VDB_PATH, p)+os.sep
+			mydir = os.path.join(portage.settings["EROOT"], portage.const.VDB_PATH, p)+os.sep
 			ismissing = True
 			for k in self.keys:
 				if os.path.exists(mydir+k):
@@ -46,7 +46,7 @@ class VdbKeyHandler(object):
 		if onProgress:
 			onProgress(maxval, 0)
 		for p in self.missing:
-			mydir = os.path.join(os.sep, portage.settings["ROOT"], portage.const.VDB_PATH, p)+os.sep
+			mydir = os.path.join(portage.settings["EROOT"], portage.const.VDB_PATH, p)+os.sep
 			if not os.access(mydir+"environment.bz2", os.R_OK):
 				errors.append("Can't access %s" % (mydir+"environment.bz2"))
 			elif not os.access(mydir, os.W_OK):

@@ -3,6 +3,7 @@
 
 from __future__ import print_function
 
+import stat
 
 import portage
 from portage import os
@@ -18,11 +19,44 @@ class BinhostHandler(object):
 	name = staticmethod(name)
 
 	def __init__(self):
-		myroot = portage.settings["ROOT"]
-		self._bintree = portage.db[myroot]["bintree"]
+		eroot = portage.settings['EROOT']
+		self._bintree = portage.db[eroot]["bintree"]
 		self._bintree.populate()
 		self._pkgindex_file = self._bintree._pkgindex_file
 		self._pkgindex = self._bintree._load_pkgindex()
+
+	def _need_update(self, cpv, data):
+
+		if "MD5" not in data:
+			return True
+
+		size = data.get("SIZE")
+		if size is None:
+			return True
+
+		mtime = data.get("MTIME")
+		if mtime is None:
+			return True
+
+		pkg_path = self._bintree.getname(cpv)
+		try:
+			s = os.lstat(pkg_path)
+		except OSError as e:
+			if e.errno not in (errno.ENOENT, errno.ESTALE):
+				raise
+			# We can't update the index for this one because
+			# it disappeared.
+			return False
+
+		try:
+			if long(mtime) != s[stat.ST_MTIME]:
+				return True
+			if long(size) != long(s.st_size):
+				return True
+		except ValueError:
+			return True
+
+		return False
 
 	def check(self, onProgress=None):
 		missing = []
@@ -38,7 +72,7 @@ class BinhostHandler(object):
 			metadata[d["CPV"]] = d
 		for i, cpv in enumerate(cpv_all):
 			d = metadata.get(cpv)
-			if not d or "MD5" not in d:
+			if not d or self._need_update(cpv, d):
 				missing.append(cpv)
 			if onProgress:
 				onProgress(maxval, i+1)
@@ -64,7 +98,7 @@ class BinhostHandler(object):
 
 		for i, cpv in enumerate(cpv_all):
 			d = metadata.get(cpv)
-			if not d or "MD5" not in d:
+			if not d or self._need_update(cpv, d):
 				missing.append(cpv)
 
 		stale = set(metadata).difference(cpv_all)
@@ -89,7 +123,7 @@ class BinhostHandler(object):
 				del missing[:]
 				for i, cpv in enumerate(cpv_all):
 					d = metadata.get(cpv)
-					if not d or "MD5" not in d:
+					if not d or self._need_update(cpv, d):
 						missing.append(cpv)
 
 				maxval = len(missing)

@@ -22,19 +22,19 @@ class WorldHandler(object):
 		self.not_installed = []
 		self.invalid_category = []
 		self.okay = []
-		from portage.sets import load_default_config
+		from portage._sets import load_default_config
 		setconfig = load_default_config(portage.settings,
-			portage.db[portage.settings["ROOT"]])
+			portage.db[portage.settings['EROOT']])
 		self._sets = setconfig.getSets()
 
 	def _check_world(self, onProgress):
 		categories = set(portage.settings.categories)
-		myroot = portage.settings["ROOT"]
-		self.world_file = os.path.join(myroot, portage.const.WORLD_FILE)
+		eroot = portage.settings['EROOT']
+		self.world_file = os.path.join(eroot, portage.const.WORLD_FILE)
 		self.found = os.access(self.world_file, os.R_OK)
-		vardb = portage.db[myroot]["vartree"].dbapi
+		vardb = portage.db[eroot]["vartree"].dbapi
 
-		from portage.sets import SETPREFIX
+		from portage._sets import SETPREFIX
 		sets = self._sets
 		world_atoms = list(sets["selected"])
 		maxval = len(world_atoms)
