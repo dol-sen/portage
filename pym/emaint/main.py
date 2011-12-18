@@ -82,9 +82,12 @@ def usage(module_controller):
 		_usage += "\nCommands:\n"
 		_usage += "  %s" % "all".ljust(15) + \
 			"Perform all supported commands\n"
+		textwrap.subsequent_indent = ' '.ljust(17)
 		for mod in module_controller.module_names:
-			_usage += "  %s%s\n" % (mod.ljust(15),
-				module_controller.get_description(mod))
+			desc = textwrap.wrap(module_controller.get_description(mod), 65)
+			_usage += "  %s%s\n" % (mod.ljust(15), desc[0])
+			for d in desc[1:]:
+				_usage += "  %s%s\n" % (' '.ljust(15), d)
 		return _usage
 
 
