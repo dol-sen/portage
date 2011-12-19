@@ -8,7 +8,7 @@
 
 """'This example emaint module provides checks and maintenance for:
 Cleaning the "emerge --resume" lists.  It extends it to show the use of
-options other than thee defauilt check,fix.
+options other than the default check,fix.
 """
 
 

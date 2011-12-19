@@ -64,18 +64,19 @@ class CleanResume(object):
 class SetResume(object):
 
 	short_desc = "Discard emerge --resume merge lists"
+	progress_capable = {'list': False, 'save': True, 'restore': True}
 
 	def name():
 		return "setresume"
 	name = staticmethod(name)
 
+	def can_progressbar(self, func):
+		return self.progress_capable[func]
+
 	def list(self, onProgress=None):
 		messages = []
 		mtimedb = portage.mtimedb
 		resume_keys = ("resume", "resume_backup")
-		maxval = len(resume_keys)
-		if onProgress:
-			onProgress(maxval, 0)
 		for i, k in enumerate(resume_keys):
 			try:
 				d = mtimedb.get(k)
@@ -93,8 +94,8 @@ class SetResume(object):
 				for x in mergelist:
 					messages.append(str(x[2]))
 			finally:
-				if onProgress:
-					onProgress(maxval, i+1)
+				# normally the progressbar update code is here
+				pass
 		return messages
 
 	def save(self, onProgress=None):
