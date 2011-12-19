@@ -91,6 +91,19 @@ def usage(module_controller):
 		return _usage
 
 
+def module_opts(module_controller, module):
+	_usage = " %s module options:\n" % module
+	opts = module_controller.get_func_descriptions(module)
+	if opts == {}:
+		opts = DEFAULT_OPTIONS
+	for opt in sorted(opts):
+		optd = opts[opt]
+		opto = "  %s, %s" %(optd['short'], optd['long'])
+		_usage += '%s %s\n' % (opto.ljust(15),optd['help'])
+	_usage += '\n'
+	return _usage
+
+
 class TaskHandler(object):
 	"""Handles the running of the tasks it is given
 	"""
@@ -157,7 +170,7 @@ def emaint_main(myargv):
 	# add default options
 	parser_options = []
 	for opt in DEFAULT_OPTIONS:
-		parser_options.append(OptionItem(opt, parser))
+		parser_options.append(OptionItem(DEFAULT_OPTIONS[opt], parser))
 	for mod in module_names[1:]:
 		desc = module_controller.get_func_descriptions(mod)
 		if desc:
@@ -180,14 +193,21 @@ def emaint_main(myargv):
 	else:
 		print("Defaulting to --check")
 		action = "-c/--check"
+	long_action = action.split('/')[1].lstrip('-')
+	#print("DEBUG: action = ", action, long_action)
 
 	if args[0] == "all":
 		tasks = []
 		for m in module_names[1:]:
-			tasks.append(module_controller.get_class(m))
-	else:
+			#print("DEBUG: module: %s, functions: " %(m, str(module_controller.get_functions(m))))
+			if long_action in module_controller.get_functions(m):
+				tasks.append(module_controller.get_class(m))
+	elif long_action in module_controller.get_functions(args[0]):
 		tasks = [module_controller.get_class(args[0] )]
-
+	else:
+		print("\nERROR: module '%s' does not have option '%s'\n" %(args[0], action))
+		print(module_opts(module_controller, args[0]))
+		sys.exit(1)
 	func = status = None
 	for opt in parser_options:
 		if opt.check_action(action):
