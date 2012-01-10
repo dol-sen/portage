@@ -1,4 +1,4 @@
-.TH "MAKE.CONF" "5" "August 2011" "Portage VERSION" "Portage"
+.TH "MAKE.CONF" "5" "Dec 2011" "Portage VERSION" "Portage"
 .SH "NAME"
 make.conf \- custom settings for Portage
 .SH "SYNOPSIS"
@@ -210,7 +210,7 @@ SRC_URI digests are correct.  This feature also affects digest generation via
 \fBebuild\fR(1) and \fBemerge\fR(1) (emerge generates digests only when the
 \fIdigest\fR feature is enabled). Existing digests for files that do not exist
 in ${DISTDIR} will be automatically assumed even when \fIassume\-digests\fR is
-not enabled. If a file exists in ${DISTDIR} but it's size does not match the
+not enabled. If a file exists in ${DISTDIR} but its size does not match the
 existing digest, the digest will be regenerated regardless of whether or
 not \fIassume\-digests\fR is enabled. The \fBebuild\fR(1) \fBdigest\fR command
 has a \fB\-\-force\fR option that can be used to force regeneration of digests.
@@ -259,6 +259,10 @@ The causes all build logs to be compressed while they are being written.
 Log file names have an extension that is appropriate for the compression
 type. Currently, only \fBgzip\fR(1) compression is supported, so build
 logs will have a '.gz' extension when this feature is enabled.
+.TP
+.B config\-protect\-if\-modified
+This causes the \fBCONFIG_PROTECT\fR behavior to be skipped for files
+that have not been modified since they were installed.
 .TP
 .B digest
 Autogenerate digests for packages when running the
@@ -814,9 +818,14 @@ settings from ebuilds.  See also \fBebuild\fR(5).
 Set this to cause portage to ignore any \fIQA_TEXTREL\fR override
 settings from ebuilds.  See also \fBebuild\fR(5).
 .TP
+\fBQA_STRICT_FLAGS_IGNORED = \fI"set"\fR
+Set this to cause portage to ignore any \fIQA_FLAGS_IGNORED\fR override
+settings from ebuilds.  See also \fBebuild\fR(5).
+.TP
 \fBQA_STRICT_DT_HASH = \fI"set"\fR
 Set this to cause portage to ignore any \fIQA_DT_HASH\fR override
-settings from ebuilds.  See also \fBebuild\fR(5).
+settings from ebuilds. This variable is deprecated. Use
+\fIQA_STRICT_FLAGS_IGNORED\fR instead.
 .TP
 \fBQA_STRICT_PRESTRIPPED = \fI"set"\fR
 Set this to cause portage to ignore any \fIQA_PRESTRIPPED\fR override

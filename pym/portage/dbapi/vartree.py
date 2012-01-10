@@ -32,6 +32,7 @@ portage.proxy.lazyimport.lazyimport(globals(),
 	'portage.util._dyn_libs.LinkageMapELF:LinkageMapELF@LinkageMap',
 	'portage.versions:best,catpkgsplit,catsplit,cpv_getkey,pkgcmp,' + \
 		'_pkgsplit@pkgsplit',
+	'subprocess',
 	'tarfile',
 )
 
@@ -624,7 +625,8 @@ class vardbapi(dbapi):
 				cache_these_wants.add(x)
 
 		if not cache_these_wants:
-			return self._aux_get(mycpv, wants)
+			mydata = self._aux_get(mycpv, wants)
+			return [mydata[x] for x in wants]
 
 		cache_these = set(self._aux_cache_keys)
 		cache_these.update(cache_these_wants)
@@ -669,9 +671,7 @@ class vardbapi(dbapi):
 		if pull_me:
 			# pull any needed data and cache it
 			aux_keys = list(pull_me)
-			for k, v in zip(aux_keys,
-				self._aux_get(mycpv, aux_keys, st=mydir_stat)):
-				mydata[k] = v
+			mydata.update(self._aux_get(mycpv, aux_keys, st=mydir_stat))
 			if not cache_valid or cache_these.difference(metadata):
 				cache_data = {}
 				if cache_valid and metadata:
@@ -702,10 +702,11 @@ class vardbapi(dbapi):
 					raise
 		if not stat.S_ISDIR(st.st_mode):
 			raise KeyError(mycpv)
-		results = []
+		results = {}
+		env_keys = []
 		for x in wants:
 			if x == "_mtime_":
-				results.append(st[stat.ST_MTIME])
+				results[x] = st[stat.ST_MTIME]
 				continue
 			try:
 				myf = io.open(
@@ -717,16 +718,103 @@ class vardbapi(dbapi):
 					myd = myf.read()
 				finally:
 					myf.close()
-				# Preserve \n for metadata that is known to
-				# contain multiple lines.
-				if self._aux_multi_line_re.match(x) is None:
-					myd = " ".join(myd.split())
 			except IOError:
+				if x not in self._aux_cache_keys and \
+					self._aux_cache_keys_re.match(x) is None:
+					env_keys.append(x)
+					continue
 				myd = _unicode_decode('')
-			if x == "EAPI" and not myd:
-				results.append(_unicode_decode('0'))
-			else:
-				results.append(myd)
+
+			# Preserve \n for metadata that is known to
+			# contain multiple lines.
+			if self._aux_multi_line_re.match(x) is None:
+				myd = " ".join(myd.split())
+
+			results[x] = myd
+
+		if env_keys:
+			env_results = self._aux_env_search(mycpv, env_keys)
+			for k in env_keys:
+				v = env_results.get(k)
+				if v is None:
+					v = _unicode_decode('')
+				if self._aux_multi_line_re.match(k) is None:
+					v = " ".join(v.split())
+				results[k] = v
+
+		if results.get("EAPI") == "":
+			results[_unicode_decode("EAPI")] = _unicode_decode('0')
+
+		return results
+
+	def _aux_env_search(self, cpv, variables):
+		"""
+		Search environment.bz2 for the specified variables. Returns
+		a dict mapping variables to values, and any variables not
+		found in the environment will not be included in the dict.
+		This is useful for querying variables like ${SRC_URI} and
+		${A}, which are not saved in separate files but are available
+		in environment.bz2 (see bug #395463).
+		"""
+		env_file = self.getpath(cpv, filename="environment.bz2")
+		if not os.path.isfile(env_file):
+			return {}
+		bunzip2_cmd = portage.util.shlex_split(
+			self.settings.get("PORTAGE_BUNZIP2_COMMAND", ""))
+		if not bunzip2_cmd:
+			bunzip2_cmd = portage.util.shlex_split(
+				self.settings["PORTAGE_BZIP2_COMMAND"])
+			bunzip2_cmd.append("-d")
+		args = bunzip2_cmd + ["-c", env_file]
+		try:
+			proc = subprocess.Popen(args, stdout=subprocess.PIPE)
+		except EnvironmentError as e:
+			if e.errno != errno.ENOENT:
+				raise
+			raise portage.exception.CommandNotFound(args[0])
+
+		# Parts of the following code are borrowed from
+		# filter-bash-environment.py (keep them in sync).
+		var_assign_re = re.compile(r'(^|^declare\s+-\S+\s+|^declare\s+|^export\s+)([^=\s]+)=("|\')?(.*)$')
+		close_quote_re = re.compile(r'(\\"|"|\')\s*$')
+		def have_end_quote(quote, line):
+			close_quote_match = close_quote_re.search(line)
+			return close_quote_match is not None and \
+				close_quote_match.group(1) == quote
+
+		variables = frozenset(variables)
+		results = {}
+		for line in proc.stdout:
+			line = _unicode_decode(line,
+				encoding=_encodings['content'], errors='replace')
+			var_assign_match = var_assign_re.match(line)
+			if var_assign_match is not None:
+				key = var_assign_match.group(2)
+				quote = var_assign_match.group(3)
+				if quote is not None:
+					if have_end_quote(quote,
+						line[var_assign_match.end(2)+2:]):
+						value = var_assign_match.group(4)
+					else:
+						value = [var_assign_match.group(4)]
+						for line in proc.stdout:
+							line = _unicode_decode(line,
+								encoding=_encodings['content'],
+								errors='replace')
+							value.append(line)
+							if have_end_quote(quote, line):
+								break
+						value = ''.join(value)
+					# remove trailing quote and whitespace
+					value = value.rstrip()[:-1]
+				else:
+					value = var_assign_match.group(4).rstrip()
+
+				if key in variables:
+					results[key] = value
+
+		proc.wait()
+		proc.stdout.close()
 		return results
 
 	def aux_update(self, cpv, values):
@@ -772,8 +860,7 @@ class vardbapi(dbapi):
 
 		@param myroot: ignored, self._eroot is used instead
 		"""
-		myroot = None
-		new_vdb = False
+		del myroot
 		counter = -1
 		try:
 			cfile = io.open(
@@ -782,8 +869,9 @@ class vardbapi(dbapi):
 				mode='r', encoding=_encodings['repo.content'],
 				errors='replace')
 		except EnvironmentError as e:
-			new_vdb = not bool(self.cpv_all())
-			if not new_vdb:
+			# Silently allow ENOENT since files under
+			# /var/cache/ are allowed to disappear.
+			if e.errno != errno.ENOENT:
 				writemsg(_("!!! Unable to read COUNTER file: '%s'\n") % \
 					self._counter_path, noiselevel=-1)
 				writemsg("!!! %s\n" % str(e), noiselevel=-1)
@@ -819,10 +907,6 @@ class vardbapi(dbapi):
 					continue
 				if pkg_counter > max_counter:
 					max_counter = pkg_counter
-
-		if counter < 0 and not new_vdb:
-			writemsg(_("!!! Initializing COUNTER to " \
-				"value of %d\n") % max_counter, noiselevel=-1)
 
 		return max_counter + 1
 
@@ -3972,6 +4056,10 @@ class dblink(object):
 		destroot = normalize_path(destroot).rstrip(sep) + sep
 		calc_prelink = "prelink-checksums" in self.settings.features
 
+		protect_if_modified = \
+			"config-protect-if-modified" in self.settings.features and \
+			self._installed_instance is not None
+
 		# this is supposed to merge a list of files.  There will be 2 forms of argument passing.
 		if isinstance(stufftomerge, basestring):
 			#A directory is specified.  Figure out protection paths, listdir() it and process it.
@@ -4213,9 +4301,18 @@ class dblink(object):
 						# now, config file management may come into play.
 						# we only need to tweak mydest if cfg file management is in play.
 						if protected:
+							destmd5 = perform_md5(mydest, calc_prelink=calc_prelink)
+							if protect_if_modified:
+								contents_key = \
+									self._installed_instance._match_contents(myrealdest)
+								if contents_key:
+									inst_info = self._installed_instance.getcontents()[contents_key]
+									if inst_info[0] == "obj" and inst_info[2] == destmd5:
+										protected = False
+
+						if protected:
 							# we have a protection path; enable config file management.
 							cfgprot = 0
-							destmd5 = perform_md5(mydest, calc_prelink=calc_prelink)
 							if mymd5 == destmd5:
 								#file already in place; simply update mtimes of destination
 								moveme = 1

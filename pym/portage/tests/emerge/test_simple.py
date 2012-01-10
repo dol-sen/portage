@@ -267,7 +267,8 @@ pkg_preinst() {
 		user_config_dir = os.path.join(os.sep, eprefix, USER_CONFIG_PATH)
 
 		features = []
-		if not portage.process.sandbox_capable:
+		if not portage.process.sandbox_capable or \
+			os.environ.get("SANDBOX_ON") == "1":
 			features.append("-sandbox")
 
 		# Since egencache ignores settings from the calling environment,
@@ -275,6 +276,8 @@ pkg_preinst() {
 		make_conf = (
 			"FEATURES=\"%s\"\n" % (" ".join(features),),
 			"PORTDIR=\"%s\"\n" % (portdir,),
+			"PORTAGE_GRPNAME=\"%s\"\n" % (os.environ["PORTAGE_GRPNAME"],),
+			"PORTAGE_USERNAME=\"%s\"\n" % (os.environ["PORTAGE_USERNAME"],),
 		)
 
 		path =  os.environ.get("PATH")
@@ -308,14 +311,16 @@ pkg_preinst() {
 			"INFOPATH" : "",
 			"PATH" : path,
 			"PKGDIR" : pkgdir,
-			"PORTAGE_GRPNAME" : os.environ["PORTAGE_GRPNAME"],
 			"PORTAGE_INST_GID" : str(portage.data.portage_gid),
 			"PORTAGE_INST_UID" : str(portage.data.portage_uid),
 			"PORTAGE_PYTHON" : portage_python,
 			"PORTAGE_TMPDIR" : portage_tmpdir,
-			"PORTAGE_USERNAME" : os.environ["PORTAGE_USERNAME"],
 			"PYTHONPATH" : pythonpath,
 		}
+
+		if "__PORTAGE_TEST_HARDLINK_LOCKS" in os.environ:
+			env["__PORTAGE_TEST_HARDLINK_LOCKS"] = \
+				os.environ["__PORTAGE_TEST_HARDLINK_LOCKS"]
 
 		updates_dir = os.path.join(portdir, "profiles", "updates")
 		dirs = [cachedir, cachedir_pregen, distdir, fake_bin,

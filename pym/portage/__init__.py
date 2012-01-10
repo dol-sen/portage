@@ -487,7 +487,7 @@ class _trees_dict(dict):
 		self._target_eroot = None
 
 def create_trees(config_root=None, target_root=None, trees=None, env=None,
-	eprefix=portage.const.EPREFIX):
+	eprefix=None):
 	if trees is not None:
 		# clean up any existing portdbapi instances
 		for myroot in trees:
@@ -522,7 +522,8 @@ def create_trees(config_root=None, target_root=None, trees=None, env=None,
 		clean_env = {}
 		for k in ('PATH', 'PORTAGE_GRPNAME', 'PORTAGE_USERNAME',
 			'SSH_AGENT_PID', 'SSH_AUTH_SOCK', 'TERM',
-			'ftp_proxy', 'http_proxy', 'no_proxy'):
+			'ftp_proxy', 'http_proxy', 'no_proxy',
+			'__PORTAGE_TEST_HARDLINK_LOCKS'):
 			v = settings.get(k)
 			if v is not None:
 				clean_env[k] = v

@@ -1,5 +1,5 @@
 # data.py -- Calculated/Discovered Data Values
-# Copyright 1998-2010 Gentoo Foundation
+# Copyright 1998-2011 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 import os, pwd, grp, platform
@@ -86,8 +86,13 @@ def _get_global(k):
 			secpass = 2
 		#Discover the uid and gid of the portage user/group
 		try:
-			portage_uid = pwd.getpwnam(_get_global('_portage_uname')).pw_uid
-			portage_gid = grp.getgrnam(_get_global('_portage_grpname')).gr_gid
+			portage_uid = pwd.getpwnam(_get_global('_portage_username')).pw_uid
+			_portage_grpname = _get_global('_portage_grpname')
+			if platform.python_implementation() == 'PyPy':
+				# Somehow this prevents "TypeError: expected string" errors
+				# from grp.getgrnam() with PyPy 1.7
+				_portage_grpname = str(_portage_grpname)
+			portage_gid = grp.getgrnam(_portage_grpname).gr_gid
 			if secpass < 1 and portage_gid in os.getgroups():
 				secpass = 1
 		except KeyError:
@@ -125,7 +130,7 @@ def _get_global(k):
 			# grp.getgrall() since it is known to trigger spurious
 			# SIGPIPE problems with nss_ldap.
 			mystatus, myoutput = \
-				portage.subprocess_getstatusoutput("id -G %s" % _portage_uname)
+				portage.subprocess_getstatusoutput("id -G %s" % _portage_username)
 			if mystatus == os.EX_OK:
 				for x in myoutput.split():
 					try:
@@ -134,12 +139,48 @@ def _get_global(k):
 						pass
 				v = sorted(set(v))
 
-	elif k == '_portage_grpname':
-		env = getattr(portage, 'settings', os.environ)
-		v = env.get('PORTAGE_GRPNAME', 'portage')
-	elif k == '_portage_uname':
-		env = getattr(portage, 'settings', os.environ)
-		v = env.get('PORTAGE_USERNAME', 'portage')
+	# Avoid instantiating portage.settings when the desired
+	# variable is set in os.environ.
+	elif k in ('_portage_grpname', '_portage_username'):
+		v = None
+		if k == '_portage_grpname':
+			env_key = 'PORTAGE_GRPNAME'
+		else:
+			env_key = 'PORTAGE_USERNAME'
+
+		if env_key in os.environ:
+			v = os.environ[env_key]
+		elif hasattr(portage, 'settings'):
+			v = portage.settings.get(env_key)
+		elif portage.const.EPREFIX:
+			# For prefix environments, default to the UID and GID of
+			# the top-level EROOT directory. The config class has
+			# equivalent code, but we also need to do it here if
+			# _disable_legacy_globals() has been called.
+			eroot = os.path.join(os.environ.get('ROOT', os.sep),
+				portage.const.EPREFIX.lstrip(os.sep))
+			try:
+				eroot_st = os.stat(eroot)
+			except OSError:
+				pass
+			else:
+				if k == '_portage_grpname':
+					try:
+						grp_struct = grp.getgrgid(eroot_st.st_gid)
+					except KeyError:
+						pass
+					else:
+						v = grp_struct.gr_name
+				else:
+					try:
+						pwd_struct = pwd.getpwuid(eroot_st.st_uid)
+					except KeyError:
+						pass
+					else:
+						v = pwd_struct.pw_name
+
+		if v is None:
+			v = 'portage'
 	else:
 		raise AssertionError('unknown name: %s' % k)
 
@@ -159,7 +200,7 @@ class _GlobalProxy(portage.proxy.objectproxy.ObjectProxy):
 		return _get_global(object.__getattribute__(self, '_name'))
 
 for k in ('portage_gid', 'portage_uid', 'secpass', 'userpriv_groups',
-	'_portage_grpname', '_portage_uname'):
+	'_portage_grpname', '_portage_username'):
 	globals()[k] = _GlobalProxy(k)
 del k
 
@@ -169,14 +210,13 @@ def _init(settings):
 	initialize global variables. This allows settings to come from make.conf
 	instead of requiring them to be set in the calling environment.
 	"""
-	if '_portage_grpname' not in _initialized_globals:
-		v = settings.get('PORTAGE_GRPNAME')
-		if v is not None:
-			globals()['_portage_grpname'] = v
-			_initialized_globals.add('_portage_grpname')
+	if '_portage_grpname' not in _initialized_globals and \
+		'_portage_username' not in _initialized_globals:
 
-	if '_portage_uname' not in _initialized_globals:
-		v = settings.get('PORTAGE_USERNAME')
-		if v is not None:
-			globals()['_portage_uname'] = v
-			_initialized_globals.add('_portage_uname')
+		v = settings.get('PORTAGE_GRPNAME', 'portage')
+		globals()['_portage_grpname'] = v
+		_initialized_globals.add('_portage_grpname')
+
+		v = settings.get('PORTAGE_USERNAME', 'portage')
+		globals()['_portage_username'] = v
+		_initialized_globals.add('_portage_username')

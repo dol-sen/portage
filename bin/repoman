@@ -373,8 +373,6 @@ qahelp={
 	"digest.assumed":"Existing digest must be assumed correct (Package level only)",
 	"digest.missing":"Some files listed in SRC_URI aren't referenced in the Manifest",
 	"digest.unused":"Some files listed in the Manifest aren't referenced in SRC_URI",
-	"ebuild.nostable":"There are no ebuilds that are marked as stable for your ARCH",
-	"ebuild.allmasked":"All ebuilds are masked for this package (Package level only)",
 	"ebuild.majorsyn":"This ebuild has a major syntax error that may cause the ebuild to fail partially or fully",
 	"ebuild.minorsyn":"This ebuild has a minor syntax error that contravenes gentoo coding style",
 	"ebuild.badheader":"This ebuild has a malformed header",
@@ -399,8 +397,6 @@ qawarnings = set((
 "digest.assumed",
 "digest.unused",
 "ebuild.notadded",
-"ebuild.nostable",
-"ebuild.allmasked",
 "ebuild.nesteddie",
 "desktop.invalid",
 "DEPEND.badmasked","RDEPEND.badmasked","PDEPEND.badmasked",
@@ -583,8 +579,7 @@ portdb = trees[root]['porttree'].dbapi
 # that are specified in layout.conf.
 repodir = os.path.realpath(portdir_overlay)
 repo_config = repoman_settings.repositories.get_repo_for_location(repodir)
-eclass_db = portdb.repositories.get_repo_for_location(repodir).eclass_db
-portdb.porttrees = list(eclass_db.porttrees)
+portdb.porttrees = list(repo_config.eclass_db.porttrees)
 portdir = portdb.porttrees[0]
 
 # In order to disable manifest signatures, repos may set
@@ -672,7 +667,7 @@ logging.info('PORTDIR_OVERLAY = "%s"' % env['PORTDIR_OVERLAY'])
 env['FEATURES'] = env.get('FEATURES', '') + ' -unknown-features-warn'
 
 categories = []
-for path in eclass_db.porttrees:
+for path in repo_config.eclass_db.porttrees:
 	categories.extend(portage.util.grabfile(
 		os.path.join(path, 'profiles', 'categories')))
 repoman_settings.categories = frozenset(
@@ -1196,6 +1191,8 @@ if options.if_modified == "y":
 for x in effective_scanlist:
 	#ebuilds and digests added to cvs respectively.
 	logging.info("checking package %s" % x)
+	# save memory by discarding xmatch caches from previous package(s)
+	arch_xmatch_caches.clear()
 	eadded=[]
 	catdir,pkgdir=x.split("/")
 	checkdir=repodir+"/"+x
@@ -1592,7 +1589,6 @@ for x in effective_scanlist:
 	changelog_path = os.path.join(checkdir_relative, "ChangeLog")
 	changelog_modified = changelog_path in modified_changelogs
 
-	allmasked = True
 	# detect unused local USE-descriptions
 	used_useflags = set()
 
@@ -1775,7 +1771,6 @@ for x in effective_scanlist:
 					arches.append([keyword, keyword[1:], [keyword[1:], keyword]])
 				else:
 					arches.append([keyword, keyword, [keyword]])
-					allmasked = False
 			if not arches:
 				# Use an empty profile for checking dependencies of
 				# packages that have empty KEYWORDS.
@@ -2114,15 +2109,6 @@ for x in effective_scanlist:
 				fails["dependency.unknown"].append("%s: %s: %s" %
 					(relative_path, mytype, ", ".join(sorted(atoms))))
 
-	# Check for 'all unstable' or 'all masked' -- ACCEPT_KEYWORDS is stripped
-	# XXX -- Needs to be implemented in dep code. Can't determine ~arch nicely.
-	#if not portage.portdb.xmatch("bestmatch-visible",x):
-	#    stats["ebuild.nostable"]+=1
-	#    fails["ebuild.nostable"].append(x)
-	if ebuildlist and allmasked and repolevel == 3:
-		stats["ebuild.allmasked"]+=1
-		fails["ebuild.allmasked"].append(x)
-
 	# check if there are unused local USE-descriptions in metadata.xml
 	# (unless there are any invalids, to avoid noise)
 	if allvalid:
@@ -2444,10 +2430,6 @@ else:
 		commitmessage += ", RepoMan options: --force"
 	commitmessage += ")"
 
-	if options.ask and userquery('Commit changes?', True) != 'Yes':
-		print("* aborting commit.")
-		sys.exit(1)
-
 	if options.echangelog in ('y', 'force'):
 		logging.info("checking for unmodified ChangeLog files")
 		committer_name = utilities.get_committer_name(env=repoman_settings)
@@ -2570,6 +2552,10 @@ else:
 
 	logging.info("myupdates: %s", myupdates)
 	logging.info("myheaders: %s", myheaders)
+
+	if options.ask and userquery('Commit changes?', True) != 'Yes':
+		print("* aborting commit.")
+		sys.exit(1)
 
 	# Handle the case where committed files have keywords which
 	# will change and need a priming commit before the Manifest

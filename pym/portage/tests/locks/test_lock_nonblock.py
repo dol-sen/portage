@@ -11,7 +11,7 @@ from portage.tests import TestCase
 
 class LockNonblockTestCase(TestCase):
 
-	def testLockNonblock(self):
+	def _testLockNonblock(self):
 		tempdir = tempfile.mkdtemp()
 		try:
 			path = os.path.join(tempdir, 'lock_me')
@@ -43,4 +43,17 @@ class LockNonblockTestCase(TestCase):
 			portage.locks.unlockfile(lock1)
 		finally:
 			shutil.rmtree(tempdir)
+
+	def testLockNonblock(self):
+		self._testLockNonblock()
+
+	def testLockNonblockHardlink(self):
+		prev_state = os.environ.pop("__PORTAGE_TEST_HARDLINK_LOCKS", None)
+		os.environ["__PORTAGE_TEST_HARDLINK_LOCKS"] = "1"
+		try:
+			self._testLockNonblock()
+		finally:
+			os.environ.pop("__PORTAGE_TEST_HARDLINK_LOCKS", None)
+			if prev_state is not None:
+				os.environ["__PORTAGE_TEST_HARDLINK_LOCKS"] = prev_state
 

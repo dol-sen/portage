@@ -376,17 +376,13 @@ class ResolverPlayground(object):
 				with open(os.path.join(metadata_dir, "metadata.xml"), 'w') as f:
 					f.write(herds_xml)
 
+		# Write empty entries for each repository, in order to exercise
+		# RepoConfigLoader's repos.conf processing.
 		repos_conf_file = os.path.join(user_config_dir, "repos.conf")		
 		f = open(repos_conf_file, "w")
-		priority = 0
 		for repo in sorted(self.repo_dirs.keys()):
 			f.write("[%s]\n" % repo)
-			f.write("LOCATION=%s\n" % self.repo_dirs[repo])
-			if repo == "test_repo":
-				f.write("PRIORITY=%s\n" % -1000)
-			else:
-				f.write("PRIORITY=%s\n" % priority)
-				priority += 1
+			f.write("\n")
 		f.close()
 
 		for config_file, lines in user_config.items():
@@ -482,6 +478,10 @@ class ResolverPlayground(object):
 			"PORTDIR_OVERLAY": " ".join(portdir_overlay),
 			'PORTAGE_TMPDIR'       : os.path.join(self.eroot, 'var/tmp'),
 		}
+
+		if os.environ.get("SANDBOX_ON") == "1":
+			# avoid problems from nested sandbox instances
+			env["FEATURES"] = "-sandbox"
 
 		# Pass along PORTAGE_USERNAME and PORTAGE_GRPNAME since they
 		# need to be inherited by ebuild subprocesses.

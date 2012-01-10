@@ -1,4 +1,4 @@
-# Copyright 2010-2011 Gentoo Foundation
+# Copyright 2010-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 import io
@@ -19,8 +19,8 @@ from portage import eclass_cache, os
 from portage.const import (MANIFEST2_HASH_FUNCTIONS, MANIFEST2_REQUIRED_HASH,
 	REPO_NAME_LOC, USER_CONFIG_PATH)
 from portage.env.loaders import KeyValuePairFileLoader
-from portage.util import (normalize_path, writemsg, writemsg_level,
-	shlex_split, stack_lists)
+from portage.util import (normalize_path, read_corresponding_eapi_file, shlex_split,
+	stack_lists, writemsg, writemsg_level)
 from portage.localization import _
 from portage import _unicode_decode
 from portage import _unicode_encode
@@ -46,7 +46,7 @@ class RepoConfig(object):
 	"""Stores config of one repository"""
 
 	__slots__ = ('aliases', 'allow_missing_manifest',
-		'cache_formats', 'create_manifest', 'disable_manifest',
+		'cache_formats', 'create_manifest', 'disable_manifest', 'eapi',
 		'eclass_db', 'eclass_locations', 'eclass_overrides', 'format', 'location',
 		'main_repo', 'manifest_hashes', 'masters', 'missing_repo_name',
 		'name', 'priority', 'sign_manifest', 'sync', 'thin_manifest',
@@ -106,12 +106,15 @@ class RepoConfig(object):
 			location = None
 		self.location = location
 
+		eapi = None
 		missing = True
 		if self.location is not None:
+			eapi = read_corresponding_eapi_file(os.path.join(self.location, REPO_NAME_LOC))
 			name, missing = self._read_valid_repo_name(self.location)
-
 		elif name == "DEFAULT": 
 			missing = False
+
+		self.eapi = eapi
 		self.name = name
 		self.missing_repo_name = missing
 		self.sign_manifest = True
@@ -124,6 +127,33 @@ class RepoConfig(object):
 		self.cache_formats = None
 		self.portage1_profiles = True
 		self.portage1_profiles_compat = False
+
+		# Parse layout.conf.
+		if self.location:
+			layout_filename = os.path.join(self.location, "metadata", "layout.conf")
+			layout_data = parse_layout_conf(self.location, self.name)[0]
+
+			# layout.conf masters may be overridden here if we have a masters
+			# setting from the user's repos.conf
+			if self.masters is None:
+				self.masters = layout_data['masters']
+
+			if layout_data['aliases']:
+				aliases = self.aliases
+				if aliases is None:
+					aliases = ()
+				# repos.conf aliases come after layout.conf aliases, giving
+				# them the ability to do incremental overrides
+				self.aliases = layout_data['aliases'] + tuple(aliases)
+
+			for value in ('allow-missing-manifest', 'cache-formats',
+				'create-manifest', 'disable-manifest', 'manifest-hashes',
+				'sign-manifest', 'thin-manifest', 'update-changelog'):
+				setattr(self, value.lower().replace("-", "_"), layout_data[value])
+
+			self.portage1_profiles = any(x.startswith("portage-1") \
+				for x in layout_data['profile-formats'])
+			self.portage1_profiles_compat = layout_data['profile-formats'] == ('portage-1-compat',)
 
 	def iter_pregenerated_caches(self, auxdbkeys, readonly=True, force=False):
 		"""
@@ -172,8 +202,9 @@ class RepoConfig(object):
 	def update(self, new_repo):
 		"""Update repository with options in another RepoConfig"""
 
-		for k in ('aliases', 'eclass_overrides', 'location', 'masters',
-			'name', 'priority', 'sync', 'user_location'):
+		keys = set(self.__slots__)
+		keys.discard("missing_repo_name")
+		for k in keys:
 			v = getattr(new_repo, k, None)
 			if v is not None:
 				setattr(self, k, v)
@@ -243,6 +274,9 @@ class RepoConfig(object):
 		repo_msg.append("")
 		return "\n".join(repo_msg)
 
+	def __repr__(self):
+		return "<portage.repository.config.RepoConfig(name='%s', location='%s')>" % (self.name, _unicode_decode(self.location))
+
 	def __str__(self):
 		d = {}
 		for k in self.__slots__:
@@ -260,7 +294,7 @@ class RepoConfigLoader(object):
 	"""Loads and store config of several repositories, loaded from PORTDIR_OVERLAY or repos.conf"""
 
 	@staticmethod
-	def _add_overlays(portdir, portdir_overlay, prepos, ignored_map, ignored_location_map):
+	def _add_repositories(portdir, portdir_overlay, prepos, ignored_map, ignored_location_map):
 		"""Add overlays in PORTDIR_OVERLAY as repositories"""
 		overlays = []
 		if portdir:
@@ -287,6 +321,14 @@ class RepoConfigLoader(object):
 				' '.join(prepos['DEFAULT'].masters)
 
 		if overlays:
+			# We need a copy of the original repos.conf data, since we're
+			# going to modify the prepos dict and some of the RepoConfig
+			# objects that we put in prepos may have to be discarded if
+			# they get overridden by a repository with the same name but
+			# a different location. This is common with repoman, for example,
+			# when temporarily overriding an rsync repo with another copy
+			# of the same repo from CVS.
+			repos_conf = prepos.copy()
 			#overlay priority is negative because we want them to be looked before any other repo
 			base_priority = 0
 			for ov in overlays:
@@ -294,19 +336,16 @@ class RepoConfigLoader(object):
 					repo_opts = default_repo_opts.copy()
 					repo_opts['location'] = ov
 					repo = RepoConfig(None, repo_opts)
-					repo_conf_opts = prepos.get(repo.name)
-					if repo_conf_opts is not None:
-						if repo_conf_opts.aliases is not None:
-							repo_opts['aliases'] = \
-								' '.join(repo_conf_opts.aliases)
-						if repo_conf_opts.eclass_overrides is not None:
-							repo_opts['eclass-overrides'] = \
-								' '.join(repo_conf_opts.eclass_overrides)
-						if repo_conf_opts.masters is not None:
-							repo_opts['masters'] = \
-								' '.join(repo_conf_opts.masters)
+					# repos_conf_opts contains options from repos.conf
+					repos_conf_opts = repos_conf.get(repo.name)
+					if repos_conf_opts is not None:
+						# Selectively copy only the attributes which
+						# repos.conf is allowed to override.
+						for k in ('aliases', 'eclass_overrides', 'masters'):
+							v = getattr(repos_conf_opts, k, None)
+							if v is not None:
+								setattr(repo, k, v)
 
-					repo = RepoConfig(repo.name, repo_opts)
 					if repo.name in prepos:
 						old_location = prepos[repo.name].location
 						if old_location is not None and old_location != repo.location:
@@ -314,10 +353,6 @@ class RepoConfigLoader(object):
 							ignored_location_map[old_location] = repo.name
 							if old_location == portdir:
 								portdir = repo.user_location
-						prepos[repo.name].update(repo)
-						repo = prepos[repo.name]
-					else:
-						prepos[repo.name] = repo
 
 					if ov == portdir and portdir not in port_ov:
 						repo.priority = -1000
@@ -325,6 +360,7 @@ class RepoConfigLoader(object):
 						repo.priority = base_priority
 						base_priority += 1
 
+					prepos[repo.name] = repo
 				else:
 					writemsg(_("!!! Invalid PORTDIR_OVERLAY"
 						" (not a dir): '%s'\n") % ov, noiselevel=-1)
@@ -400,7 +436,7 @@ class RepoConfigLoader(object):
 
 		# If PORTDIR_OVERLAY contains a repo with the same repo_name as
 		# PORTDIR, then PORTDIR is overridden.
-		portdir = self._add_overlays(portdir, portdir_overlay, prepos,
+		portdir = self._add_repositories(portdir, portdir_overlay, prepos,
 			ignored_map, ignored_location_map)
 		if portdir and portdir.strip():
 			portdir = os.path.realpath(portdir)
@@ -411,35 +447,6 @@ class RepoConfigLoader(object):
 		self.missing_repo_names = frozenset(repo.location
 			for repo in prepos.values()
 			if repo.location is not None and repo.missing_repo_name)
-
-		#Parse layout.conf and read masters key.
-		for repo in prepos.values():
-			if not repo.location:
-				continue
-			layout_filename = os.path.join(repo.location, "metadata", "layout.conf")
-			layout_data, layout_errors = parse_layout_conf(repo.location, repo.name)
-
-			# layout.conf masters may be overridden here if we have a masters
-			# setting from the user's repos.conf
-			if repo.masters is None:
-				repo.masters = layout_data['masters']
-
-			if layout_data['aliases']:
-				aliases = repo.aliases
-				if aliases is None:
-					aliases = ()
-				# repos.conf aliases come after layout.conf aliases, giving
-				# them the ability to do incremental overrrides
-				repo.aliases = layout_data['aliases'] + tuple(aliases)
-
-			for value in ('allow-missing-manifest', 'cache-formats',
-				'create-manifest', 'disable-manifest', 'manifest-hashes',
-				'sign-manifest', 'thin-manifest', 'update-changelog'):
-				setattr(repo, value.lower().replace("-", "_"), layout_data[value])
-
-			repo.portage1_profiles = any(x.startswith("portage-1") \
-				for x in layout_data['profile-formats'])
-			repo.portage1_profiles_compat = layout_data['profile-formats'] == ('portage-1-compat',)
 
 		#Take aliases into account.
 		new_prepos = {}
@@ -531,7 +538,12 @@ class RepoConfigLoader(object):
 
 			eclass_locations = []
 			eclass_locations.extend(master_repo.location for master_repo in repo.masters)
-			eclass_locations.append(repo.location)
+			# Only append the current repo to eclass_locations if it's not
+			# there already. This allows masters to have more control over
+			# eclass override order, which may be useful for scenarios in
+			# which there is a plan to migrate eclasses to a master repo.
+			if repo.location not in eclass_locations:
+				eclass_locations.append(repo.location)
 
 			if repo.eclass_overrides:
 				for other_repo_name in repo.eclass_overrides:
@@ -657,6 +669,7 @@ def _get_repo_name(repo_location, cached=None):
 	return name
 
 def parse_layout_conf(repo_location, repo_name=None):
+	eapi = read_corresponding_eapi_file(os.path.join(repo_location, REPO_NAME_LOC))
 
 	layout_filename = os.path.join(repo_location, "metadata", "layout.conf")
 	layout_file = KeyValuePairFileLoader(layout_filename, None, None)
@@ -730,7 +743,10 @@ def parse_layout_conf(repo_location, repo_name=None):
 
 	raw_formats = layout_data.get('profile-formats')
 	if raw_formats is None:
-		raw_formats = ('portage-1-compat',)
+		if eapi in ('4-python',):
+			raw_formats = ('portage-1',)
+		else:
+			raw_formats = ('portage-1-compat',)
 	else:
 		raw_formats = set(raw_formats.split())
 		unknown = raw_formats.difference(['pms', 'portage-1'])

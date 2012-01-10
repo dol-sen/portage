@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 1999-2011 Gentoo Foundation
+# Copyright 1999-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 PORTAGE_BIN_PATH="${PORTAGE_BIN_PATH:-/usr/lib/portage/bin}"
@@ -25,28 +25,29 @@ else
 		libopts register_die_hook register_success_hook \
 		remove_path_entry set_unless_changed strip_duplicate_slashes \
 		unset_unless_changed use_with use_enable ; do
-		eval "${x}() { : ; }"
+		eval "${x}() {
+			if has \"\${EAPI:-0}\" 4-python; then
+				die \"\${FUNCNAME}() calls are not allowed in global scope\"
+			fi
+		}"
 	done
-	# These dummy functions return false, in order to ensure that
+	# These dummy functions return false in older EAPIs, in order to ensure that
 	# `use multislot` is false for the "depend" phase.
 	for x in use useq usev ; do
-		eval "${x}() { return 1; }"
+		eval "${x}() {
+			if has \"\${EAPI:-0}\" 4-python; then
+				die \"\${FUNCNAME}() calls are not allowed in global scope\"
+			else
+				return 1
+			fi
+		}"
 	done
 	# These functions die because calls to them during the "depend" phase
 	# are considered to be severe QA violations.
 	for x in best_version has_version portageq ; do
-		eval "${x}() { die \"\${FUNCNAME} calls are not allowed in global scope\"; }"
+		eval "${x}() { die \"\${FUNCNAME}() calls are not allowed in global scope\"; }"
 	done
 	unset x
-fi
-
-if [[ $PORTAGE_SANDBOX_COMPAT_LEVEL -lt 22 ]] ; then
-	# Ensure that /dev/std* streams have appropriate sandbox permission for
-	# bug #288863. This can be removed after sandbox is fixed and portage
-	# depends on the fixed version (sandbox-2.2 has the fix but it is
-	# currently unstable).
-	export SANDBOX_WRITE="${SANDBOX_WRITE:+${SANDBOX_WRITE}:}/dev/stdout:/dev/stderr"
-	export SANDBOX_READ="${SANDBOX_READ:+${SANDBOX_READ}:}/dev/stdin"
 fi
 
 # Don't use sandbox's BASH_ENV for new shells because it does
@@ -602,7 +603,7 @@ if ! has "$EBUILD_PHASE" clean cleanrm ; then
 
 				# these ones support regular expressions, so translate
 				# fnmatch patterns to regular expressions
-				for x in QA_DT_HASH QA_DT_NEEDED QA_PRESTRIPPED QA_SONAME ; do
+				for x in QA_DT_NEEDED QA_FLAGS_IGNORED QA_PRESTRIPPED QA_SONAME ; do
 					if [[ $(declare -p $x 2>/dev/null) = declare\ -a* ]] ; then
 						eval "$x=(\"\${$x[@]}\" ${QA_PREBUILT//\*/.*})"
 					else
@@ -649,9 +650,9 @@ if [[ $EBUILD_PHASE = depend ]] ; then
 		PROPERTIES DEFINED_PHASES UNUSED_05 UNUSED_04
 		UNUSED_03 UNUSED_02 UNUSED_01"
 
-	#the extra $(echo) commands remove newlines
 	[ -n "${EAPI}" ] || EAPI=0
 
+	# The extra $(echo) commands remove newlines.
 	if [ -n "${dbkey}" ] ; then
 		> "${dbkey}"
 		for f in ${auxdbkeys} ; do
