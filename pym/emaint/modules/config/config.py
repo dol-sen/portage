@@ -29,7 +29,8 @@ class CleanConfig(object):
 			configs[ls[0]] = ls[1]
 		return configs
 
-	def check(self, onProgress=None):
+	def check(self,  **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		configs = self.load_configlist()
 		messages = []
 		chksums = []
@@ -50,7 +51,8 @@ class CleanConfig(object):
 				i += 1
 		return self._format_output(messages, chksums)
 
-	def fix(self, onProgress=None):
+	def fix(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		configs = self.load_configlist()
 		messages = []
 		chksums = []

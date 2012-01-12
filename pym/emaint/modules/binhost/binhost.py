@@ -58,7 +58,8 @@ class BinhostHandler(object):
 
 		return False
 
-	def check(self, onProgress=None):
+	def check(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		missing = []
 		cpv_all = self._bintree.dbapi.cpv_all()
 		cpv_all.sort()
@@ -82,7 +83,8 @@ class BinhostHandler(object):
 			errors.append("'%s' is not in the repository" % cpv)
 		return errors
 
-	def fix(self, onProgress=None):
+	def fix(self,  **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		bintree = self._bintree
 		cpv_all = self._bintree.dbapi.cpv_all()
 		cpv_all.sort()

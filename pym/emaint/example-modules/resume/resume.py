@@ -17,7 +17,8 @@ class CleanResume(object):
 		return "cleanresume"
 	name = staticmethod(name)
 
-	def check(self, onProgress=None):
+	def check(self,  **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		messages = []
 		mtimedb = portage.mtimedb
 		resume_keys = ("resume", "resume_backup")
@@ -43,7 +44,8 @@ class CleanResume(object):
 					onProgress(maxval, i+1)
 		return messages
 
-	def fix(self, onProgress=None):
+	def fix(self,  **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		delete_count = 0
 		mtimedb = portage.mtimedb
 		resume_keys = ("resume", "resume_backup")

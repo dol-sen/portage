@@ -22,11 +22,13 @@ class EnvOne(object):
 	name = staticmethod(name)
 
 
-	def check(self, onProgress=None):
+	def check(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		print("\n You've reached the EnvOne class check()")
 
 
-	def fix(self, onProgress=None):
+	def fix(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		print("\n You've reached the EnvOne class fix()")
 
 
@@ -39,11 +41,13 @@ class EnvTwo(object):
 	name = staticmethod(name)
 
 
-	def check(self, onProgress=None):
+	def check(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		print("\n You've reached the EnvTwo class check()")
 
 
-	def fix(self, onProgress=None):
+	def fix(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		print("\n You've reached the EnvTwo class fix()")
 
 
@@ -56,10 +60,12 @@ class EnvThree(object):
 	name = staticmethod(name)
 
 
-	def check(self, onProgress=None):
+	def check(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		print("\n You've reached the EnvThree class check()")
 
 
-	def fix(self, onProgress=None):
+	def fix(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		print("\n You've reached the EnvThree class fix()")
 

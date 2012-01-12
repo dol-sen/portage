@@ -30,18 +30,11 @@ class OptionItem(object):
 		self.help = opt['help']
 		self.status = opt['status']
 		self.func = opt['func']
-		if 'action' in opt:
-			self.action = opt['action']
-		else:
-			self.action = "callback"
-		if 'callback' in opt:
-			self.callback = opt['callback']
-		else:
-			self.callback = self._exclusive
-		if 'callback_kwargs' in opt:
-			self.callback_kwargs = opt['callback_kwargs']
-		else:
-			self.callback_kwargs = {"var":"action"}
+		self.action = opt.get('action', "callback")
+		self.type = opt.get('type', None)
+		self.dest = opt.get('dest', None)
+		self.callback = opt.get('callback', self._exclusive)
+		self.callback_kwargs = opt.get('callback_kwargs', {"var":"action"})
 
 
 	def _exclusive(self, option, *args, **kw):
@@ -116,13 +109,13 @@ class TaskHandler(object):
 		self.progress_bar = ProgressBar(self.isatty)
 
 
-	def run_tasks(self, tasks, func, status=None, verbose=True):
+	def run_tasks(self, tasks, func, status=None, verbose=True, options=None):
 		"""Runs the module tasks"""
 		if tasks is None or func is None:
 			return
 		for task in tasks:
 			if status:
-				print(status % task.name(), func)
+				print(status % task.name()) #, func)
 			inst = task()
 			show_progress = self.show_progress_bar
 			# check if the function is capable of progressbar 
@@ -134,7 +127,13 @@ class TaskHandler(object):
 				onProgress = self.progress_bar.start()
 			else:
 				onProgress = None
-			result = getattr(inst, func)(onProgress=onProgress)
+			kwargs = {
+				'onProgress': onProgress,
+				# pass in a copy of the options so a module can not pollute or change
+				# them for other tasks if there is more to do.
+				'options': options.copy()
+				}
+			result = getattr(inst, func)(**kwargs)
 			if self.isatty and  show_progress:
 				# make sure the final progress is displayed
 				self.progress_bar.display()
@@ -178,11 +177,13 @@ def emaint_main(myargv):
 				parser_options.append(OptionItem(desc[opt], parser))
 	for opt in parser_options:
 		parser.add_option(opt.short, opt.long, help=opt.help, action=opt.action,
+		type=opt.type, dest=opt.dest,
 			callback=opt.callback, callback_kwargs=opt.callback_kwargs)
 
 	parser.action = None
 
 	(options, args) = parser.parse_args(args=myargv)
+	#print('options', options, '\nargs', args, '\naction', parser.action)
 	if len(args) != 1:
 		parser.error("Incorrect number of arguments")
 	if args[0] not in module_names:
@@ -215,6 +216,9 @@ def emaint_main(myargv):
 			func = opt.func
 			break
 
+	# need to pass the parser options dict to the modules
+	# so they are available if needed.
+	task_opts = options.__dict__
 	taskmaster = TaskHandler(callback=print_results)
-	taskmaster.run_tasks(tasks, func, status)
+	taskmaster.run_tasks(tasks, func, status, options=task_opts)
 

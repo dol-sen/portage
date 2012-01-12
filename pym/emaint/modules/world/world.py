@@ -65,7 +65,8 @@ class WorldHandler(object):
 			if onProgress:
 				onProgress(maxval, i+1)
 
-	def check(self, onProgress=None):
+	def check(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		self._check_world(onProgress)
 		errors = []
 		if self.found:
@@ -76,7 +77,8 @@ class WorldHandler(object):
 			errors.append(self.world_file + " could not be opened for reading")
 		return errors
 
-	def fix(self, onProgress=None):
+	def fix(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		world_set = self._sets["selected"]
 		world_set.lock()
 		try:

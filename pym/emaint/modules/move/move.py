@@ -45,7 +45,8 @@ class MoveHandler(object):
 
 		return retupdates, errors
 
-	def check(self, onProgress=None):
+	def check(self, **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		allupdates, errors = self._grab_global_updates()
 		# Matching packages and moving them is relatively fast, so the
 		# progress bar is updated in indeterminate mode.
@@ -109,7 +110,8 @@ class MoveHandler(object):
 				onProgress(maxval, i+1)
 		return errors
 
-	def fix(self, onProgress=None):
+	def fix(self,  **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		allupdates, errors = self._grab_global_updates()
 		# Matching packages and moving them is relatively fast, so the
 		# progress bar is updated in indeterminate mode.

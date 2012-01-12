@@ -33,12 +33,14 @@ class VdbKeyHandler(object):
 			if ismissing:
 				self.missing.append(p)
 
-	def check(self, onProgress=None):
+	def check(self,  **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 		"""@param onProgress: default is None,
 		is not used, is only there for module compatibility."""
 		return ["%s has missing keys" % x for x in self.missing]
 
-	def fix(self, onProgress=None):
+	def fix(self,  **kwargs):
+		onProgress = kwargs.get('onProgress', None)
 
 		errors = []
 
