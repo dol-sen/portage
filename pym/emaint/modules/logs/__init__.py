@@ -20,7 +20,7 @@ module_spec = {
 			'name': "logs",
 			'class': "CleanLogs",
 			'description':  "Clean out old logs from the PORT_LOGDIR",
-			'functions': ['check','clean', 'pretend', 'time'],
+			'functions': ['check','clean'],
 			'func_desc': {
 				'clean': {
 					"short": "-C", "long": "--clean",

@@ -48,8 +48,8 @@ class CleanLogs(object):
 		messages = []
 		num_of_days = None
 		if kwargs:
-			# convuluted, I know, but portage.settings does not exist in kwargs.get()
-			# when called from _emerge.main.clean_logs()
+			# convuluted, I know, but portage.settings does not exist in
+			# kwargs.get() when called from _emerge.main.clean_logs()
 			settings = kwargs.get('settings', None)
 			if not settings:
 				settings = portage.settings
@@ -63,10 +63,15 @@ class CleanLogs(object):
 		clean_cmd = settings.get("PORT_LOGDIR_CLEAN")
 		if clean_cmd:
 			clean_cmd = shlex_split(clean_cmd)
-			if '-mtime' in clean_cmd and num_of_days:
+			if '-mtime' in clean_cmd and num_of_days is not None:
 				#print('changing the deafult number of days to:', num_of_days)
-				clean_cmd[clean_cmd.index('-mtime') +1] = \
-					'+%s' % str(num_of_days)
+				if num_of_days == 0:
+					i = clean_cmd.index('-mtime')
+					clean_cmd.remove('-mtime')
+					clean_cmd.pop(i)
+				else:
+					clean_cmd[clean_cmd.index('-mtime') +1] = \
+						'+%s' % str(num_of_days)
 			if pretend:
 				if "-delete" in clean_cmd:
 					#print('removing -delete')
