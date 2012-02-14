@@ -10,7 +10,7 @@
 	checks and maintenance.
 """
 
-#from __future__ import print_function
+from __future__ import print_function
 import os
 import sys
 import errno
@@ -33,7 +33,7 @@ except KeyboardInterrupt:
 	sys.exit(1)
 
 from os import path as osp
-print osp.join(osp.dirname(osp.dirname(osp.realpath(__file__))), "pym")
+print(osp.join(osp.dirname(osp.dirname(osp.realpath(__file__))), "pym"))
 sys.path.insert(0, osp.join(osp.dirname(osp.dirname(osp.realpath(__file__))), "pym"))
 
 from emaint.main import emaint_main
