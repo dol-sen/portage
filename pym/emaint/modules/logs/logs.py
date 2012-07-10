@@ -104,7 +104,8 @@ class CleanLogs(object):
 	def _convert_errors(rval, eerror=None, einfo=None):
 		msg = []
 		if rval != os.EX_OK:
-			msg.append("PORT_LOGDIR_CLEAN command returned %d" % (rval,))
+			msg.append("PORT_LOGDIR_CLEAN command returned %s"
+				% ("%d" % rval if rval else "None"))
 			msg.append("See the make.conf(5) man page for "
 				"PORT_LOGDIR_CLEAN usage instructions.")
 			if eerror:
