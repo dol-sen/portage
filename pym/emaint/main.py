@@ -106,7 +106,7 @@ class TaskHandler(object):
 		self.verbose = verbose
 		self.callback = callback
 		self.isatty = os.environ.get('TERM') != 'dumb' and sys.stdout.isatty()
-		self.progress_bar = ProgressBar(self.isatty)
+		self.progress_bar = ProgressBar(self.isatty, title="Emaint", max_desc_length=26)
 
 
 	def run_tasks(self, tasks, func, status=None, verbose=True, options=None):
@@ -114,8 +114,6 @@ class TaskHandler(object):
 		if tasks is None or func is None:
 			return
 		for task in tasks:
-			if status:
-				print(status % task.name()) #, func)
 			inst = task()
 			show_progress = self.show_progress_bar
 			# check if the function is capable of progressbar 
@@ -124,6 +122,7 @@ class TaskHandler(object):
 				show_progress = inst.can_progressbar(func)
 			if show_progress:
 				self.progress_bar.reset()
+				self.progress_bar.set_label(func + " " + inst.name())
 				onProgress = self.progress_bar.start()
 			else:
 				onProgress = None
@@ -148,8 +147,6 @@ def print_results(results):
 		print()
 		print("\n".join(results))
 		print("\n")
-
-	print("Finished")
 
 
 def emaint_main(myargv):
@@ -192,7 +189,6 @@ def emaint_main(myargv):
 	if parser.action:
 		action = parser.action
 	else:
-		print("Defaulting to --check")
 		action = "-c/--check"
 	long_action = action.split('/')[1].lstrip('-')
 	#print("DEBUG: action = ", action, long_action)
