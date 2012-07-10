@@ -41,17 +41,22 @@ class ProgressHandler(object):
 class ProgressBar(ProgressHandler):
 	"""Class to set up and return a Progress Bar"""
 
-	def __init__(self, isatty):
+	def __init__(self, isatty, **kwargs):
 		self.isatty = isatty
+		self.kwargs = kwargs
 		ProgressHandler.__init__(self)
+		self.progressBar = None
 
 	def start(self):
 		if self.isatty:
-			self.progressBar = portage.output.TermProgressBar()
+			self.progressBar = portage.output.TermProgressBar(**self.kwargs)
 			signal.signal(signal.SIGWINCH, self.sigwinch_handler)
 		else:
 			self.onProgress = None
 		return self.onProgress
+		
+	def set_label(self, _label):
+		self.kwargs['label'] = _label
 
 	def display(self):
 		self.progressBar.set(self.curval, self.maxval)
