@@ -8,7 +8,9 @@ import stat
 import portage
 from portage import os
 
-
+import sys
+if sys.hexversion >= 0x3000000:
+	long = int
 
 class BinhostHandler(object):
 
