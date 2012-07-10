@@ -1,5 +1,5 @@
 #!/usr/bin/python -O
-# Copyright 1999-2011 Gentoo Foundation
+# Copyright 1999-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 # Next to do: dep syntax checking in mask files
@@ -45,7 +45,11 @@ portage.dep._internal_warnings = True
 try:
 	import xml.etree.ElementTree
 	from xml.parsers.expat import ExpatError
-except ImportError:
+except (SystemExit, KeyboardInterrupt):
+	raise
+except (ImportError, SystemError, RuntimeError, Exception):
+	# broken or missing xml support
+	# http://bugs.python.org/issue14988
 	msg = ["Please enable python's \"xml\" USE flag in order to use repoman."]
 	from portage.output import EOutput
 	out = EOutput()
@@ -69,11 +73,14 @@ from portage import cvstree, normalize_path
 from portage import util
 from portage.exception import (FileNotFound, MissingParameter,
 	ParseError, PermissionDenied)
+from portage.manifest import _prohibited_filename_chars_re as \
+	disallowed_filename_chars_re
 from portage.process import find_binary, spawn
 from portage.output import bold, create_color_func, \
 	green, nocolor, red
 from portage.output import ConsoleStyleFile, StyleWriter
-from portage.util import cmp_sort_key, writemsg_level
+from portage.util import writemsg_level
+from portage.util._desktop_entry import validate_desktop_entry
 from portage.package.ebuild.digestgen import digestgen
 from portage.eapi import eapi_has_iuse_defaults, eapi_has_required_use
 
@@ -85,7 +92,6 @@ util.initialize_logger()
 # 14 is the length of DESCRIPTION=""
 max_desc_len = 100
 allowed_filename_chars="a-zA-Z0-9._-+:"
-disallowed_filename_chars_re = re.compile(r'[^a-zA-Z0-9._\-+:]')
 pv_toolong_re = re.compile(r'[0-9]{19,}')
 bad = create_color_func("BAD")
 
@@ -95,8 +101,8 @@ os.umask(0o22)
 # behave incrementally.
 repoman_incrementals = tuple(x for x in \
 	portage.const.INCREMENTALS if x != 'ACCEPT_KEYWORDS')
-repoman_settings = portage.config(local_config=False)
-repoman_settings.lock()
+config_root = os.environ.get("PORTAGE_CONFIGROOT")
+repoman_settings = portage.config(config_root=config_root, local_config=False)
 
 if repoman_settings.get("NOCOLOR", "").lower() in ("yes", "true") or \
 	repoman_settings.get('TERM') == 'dumb' or \
@@ -186,6 +192,10 @@ def ParseArgs(argv, qahelp):
 
 	parser.add_option('-M', '--commitmsgfile', dest='commitmsgfile',
 		help='specify a path to a file that contains a commit message')
+
+	parser.add_option('--digest',
+		type='choice', choices=('y', 'n'), metavar='<y|n>',
+		help='Automatically update Manifest digests for modified files')
 
 	parser.add_option('-p', '--pretend', dest='pretend', default=False,
 		action='store_true', help='don\'t commit or fix anything; just show what would be done')
@@ -309,8 +319,9 @@ qahelp={
 	"file.size.fatal":"Files in the files directory must be under 60 KiB",
 	"file.name":"File/dir name must be composed of only the following chars: %s " % allowed_filename_chars,
 	"file.UTF8":"File is not UTF8 compliant",
-	"inherit.autotools":"Ebuild inherits autotools but does not call eautomake, eautoconf or eautoreconf",
 	"inherit.deprecated":"Ebuild inherits a deprecated eclass",
+	"inherit.missing":"Ebuild uses functions from an eclass but does not inherit it",
+	"inherit.unused":"Ebuild inherits an eclass but does not use it",
 	"java.eclassesnotused":"With virtual/jdk in DEPEND you must inherit a java eclass",
 	"wxwidgets.eclassnotused":"Ebuild DEPENDs on x11-libs/wxGTK without inheriting wxwidgets.eclass",
 	"KEYWORDS.dropped":"Ebuilds that appear to have dropped KEYWORDS for some arch",
@@ -321,7 +332,7 @@ qahelp={
 	"LICENSE.virtual":"Virtuals that have a non-empty LICENSE variable",
 	"DESCRIPTION.missing":"Ebuilds that have a missing or empty DESCRIPTION variable",
 	"DESCRIPTION.toolong":"DESCRIPTION is over %d characters" % max_desc_len,
-	"EAPI.definition":"EAPI is defined after an inherit call (must be defined before)",
+	"EAPI.definition":"EAPI definition does not conform to PMS section 7.3.1 (first non-comment, non-blank line)",
 	"EAPI.deprecated":"Ebuilds that use features that are deprecated in the current EAPI",
 	"EAPI.incompatible":"Ebuilds that use features that are only available with a different EAPI",
 	"EAPI.unsupported":"Ebuilds that have an unsupported EAPI version (you must upgrade portage)",
@@ -376,13 +387,13 @@ qahelp={
 	"ebuild.majorsyn":"This ebuild has a major syntax error that may cause the ebuild to fail partially or fully",
 	"ebuild.minorsyn":"This ebuild has a minor syntax error that contravenes gentoo coding style",
 	"ebuild.badheader":"This ebuild has a malformed header",
-	"eprefixify.defined":"The ebuild uses eprefixify, but does not inherit the prefix eclass",
 	"manifest.bad":"Manifest has missing or incorrect digests",
 	"metadata.missing":"Missing metadata.xml files",
 	"metadata.bad":"Bad metadata.xml files",
 	"metadata.warning":"Warnings in metadata.xml files",
 	"portage.internal":"The ebuild uses an internal Portage function",
 	"virtual.oldstyle":"The ebuild PROVIDEs an old-style virtual (see GLEP 37)",
+	"virtual.suspect":"Ebuild contains a package that usually should be pulled via virtual/, not directly.",
 	"usage.obsolete":"The ebuild makes use of an obsolete construct",
 	"upstream.workaround":"The ebuild works around an upstream bug, an upstream bug should be filed and tracked in bugs.gentoo.org"
 }
@@ -414,13 +425,13 @@ qawarnings = set((
 "PDEPEND.suspect",
 "RDEPEND.implicit",
 "RDEPEND.suspect",
+"virtual.suspect",
 "RESTRICT.invalid",
-"SRC_URI.mirror",
 "ebuild.minorsyn",
 "ebuild.badheader",
 "ebuild.patches",
 "file.size",
-"inherit.autotools",
+"inherit.unused",
 "inherit.deprecated",
 "java.eclassesnotused",
 "wxwidgets.eclassnotused",
@@ -428,10 +439,13 @@ qawarnings = set((
 "portage.internal",
 "usage.obsolete",
 "upstream.workaround",
-"virtual.oldstyle",
 "LIVEVCS.stable",
 "LIVEVCS.unmasked",
 ))
+
+if portage.const._ENABLE_INHERIT_CHECK:
+	# This is experimental, so it's non-fatal.
+	qawarnings.add("inherit.missing")
 
 non_ascii_re = re.compile(r'[^\x00-\x7f]')
 
@@ -478,7 +492,10 @@ suspect_rdepend = frozenset([
 	"dev-util/gtk-doc-am",
 	"dev-util/intltool",
 	"dev-util/jam",
+	"dev-util/pkg-config-lite",
+	"dev-util/pkgconf",
 	"dev-util/pkgconfig",
+	"dev-util/pkgconfig-openbsd",
 	"dev-util/scons",
 	"dev-util/unifdef",
 	"dev-util/yacc",
@@ -493,9 +510,17 @@ suspect_rdepend = frozenset([
 	"sys-devel/m4",
 	"sys-devel/pmake",
 	"virtual/linux-sources",
+	"virtual/pkgconfig",
 	"x11-misc/bdftopcf",
 	"x11-misc/imake",
 ])
+
+suspect_virtual = {
+	"dev-util/pkg-config-lite":"virtual/pkgconfig",
+	"dev-util/pkgconf":"virtual/pkgconfig",
+	"dev-util/pkgconfig":"virtual/pkgconfig",
+	"dev-util/pkgconfig-openbsd":"virtual/pkgconfig",
+}
 
 metadata_dtd_uri = 'http://www.gentoo.org/dtd/metadata.dtd'
 # force refetch if the local copy creation time is older than this
@@ -544,7 +569,7 @@ if options.if_modified == "y" and vcs is None:
 	options.if_modified = "n"
 
 # Disable copyright/mtime check if vcs does not preserve mtime (bug #324075).
-vcs_preserves_mtime = vcs not in ('git',)
+vcs_preserves_mtime = vcs in ('cvs',)
 
 vcs_local_opts = repoman_settings.get("REPOMAN_VCS_LOCAL_OPTS", "").split()
 vcs_global_opts = repoman_settings.get("REPOMAN_VCS_GLOBAL_OPTS")
@@ -560,13 +585,12 @@ if options.mode == 'commit' and not options.pretend and not vcs:
 	options.pretend = True
 
 # Ensure that PORTDIR_OVERLAY contains the repository corresponding to $PWD.
-repoman_settings = portage.config(local_config=False)
 repoman_settings['PORTDIR_OVERLAY'] = "%s %s" % \
 	(repoman_settings.get('PORTDIR_OVERLAY', ''),
 	portage._shell_quote(portdir_overlay))
 # We have to call the config constructor again so
 # that config.repositories is initialized correctly.
-repoman_settings = portage.config(local_config=False,
+repoman_settings = portage.config(config_root=config_root, local_config=False,
 	env=dict(os.environ, PORTDIR_OVERLAY=repoman_settings['PORTDIR_OVERLAY']))
 
 root = repoman_settings['EROOT']
@@ -581,6 +605,16 @@ repodir = os.path.realpath(portdir_overlay)
 repo_config = repoman_settings.repositories.get_repo_for_location(repodir)
 portdb.porttrees = list(repo_config.eclass_db.porttrees)
 portdir = portdb.porttrees[0]
+
+if repo_config.allow_provide_virtual:
+	qawarnings.add("virtual.oldstyle")
+
+if repo_config.sign_commit:
+	if vcs == 'git':
+		# NOTE: It's possible to use --gpg-sign=key_id to specify the key in
+		# the commit arguments. If key_id is unspecified, then it must be
+		# configured by `git config user.signingkey key_id`.
+		vcs_local_opts.append("--gpg-sign")
 
 # In order to disable manifest signatures, repos may set
 # "sign-manifests = false" in metadata/layout.conf. This
@@ -647,6 +681,9 @@ if vcs is None:
 # Gentoo's Council decided to always use the ChangeLog file.
 # TODO: shouldn't this just be switched on the repo, iso the VCS?
 check_changelog = options.echangelog not in ('y', 'force') and vcs in ('cvs', 'svn')
+
+if 'digest' in repoman_settings.features and options.digest != 'n':
+	options.digest = 'y'
 
 logging.debug("vcs: %s" % (vcs,))
 logging.debug("repo config: %s" % (repo_config,))
@@ -929,6 +966,20 @@ def vcs_files_to_cps(vcs_file_iter):
 
 	return frozenset(modified_cps)
 
+def git_supports_gpg_sign():
+	status, cmd_output = \
+		subprocess_getstatusoutput("git --version")
+	cmd_output = cmd_output.split()
+	if cmd_output:
+		version = re.match(r'^(\d+)\.(\d+)\.(\d+)', cmd_output[-1])
+		if version is not None:
+			version = [int(x) for x in version.groups()[1:]]
+			if version[0] > 1 or \
+				(version[0] == 1 and version[1] > 7) or \
+				(version[0] == 1 and version[1] == 7 and version[2] >= 9):
+				return True
+	return False
+
 def dev_keywords(profiles):
 	"""
 	Create a set of KEYWORDS values that exist in 'dev'
@@ -997,7 +1048,7 @@ def fetch_metadata_dtd():
 	Fetch metadata.dtd if it doesn't exist or the ctime is older than
 	metadata_dtd_ctime_interval.
 	@rtype: bool
-	@returns: True if successful, otherwise False
+	@return: True if successful, otherwise False
 	"""
 
 	must_fetch = True
@@ -1099,7 +1150,7 @@ if vcs == "cvs":
 	if options.if_modified == "y":
 		myremoved = cvstree.findremoved(mycvstree, recursive=1, basedir="./")
 
-if vcs == "svn":
+elif vcs == "svn":
 	with os.popen("svn status") as f:
 		svnstatus = f.readlines()
 	mychanged = [ "./" + elem.split()[-1:][0] for elem in svnstatus if elem and elem[:1] in "MR" ]
@@ -1148,9 +1199,18 @@ if vcs:
 	modified_changelogs.update(x for x in chain(mychanged, mynew) \
 		if os.path.basename(x) == "ChangeLog")
 
+def vcs_new_changed(relative_path):
+	for x in chain(mychanged, mynew):
+		if x == relative_path:
+			return True
+	return False
+
 have_pmasked = False
 have_dev_keywords = False
 dofail = 0
+
+# NOTE: match-all caches are not shared due to potential
+# differences between profiles in _get_implicit_iuse.
 arch_caches={}
 arch_xmatch_caches = {}
 shared_xmatch_caches = {"cp-list":{}}
@@ -1164,7 +1224,10 @@ check_ebuild_notadded = not \
 # Build a regex from thirdpartymirrors for the SRC_URI.mirror check.
 thirdpartymirrors = []
 for v in repoman_settings.thirdpartymirrors().values():
-	thirdpartymirrors.extend(v)
+	for v in v:
+		if not v.endswith("/"):
+			v += "/"
+		thirdpartymirrors.append(v)
 
 class _MetadataTreeBuilder(xml.etree.ElementTree.TreeBuilder):
 	"""
@@ -1205,8 +1268,7 @@ for x in effective_scanlist:
 	generated_manifest = False
 
 	if options.mode == "manifest" or \
-	  (options.mode != 'manifest-check' and \
-	  'digest' in repoman_settings.features) or \
+	  (options.mode != 'manifest-check' and options.digest == 'y') or \
 	  options.mode in ('commit', 'fix') and not options.pretend:
 		auto_assumed = set()
 		fetchlist_dict = portage.FetchlistDict(checkdir,
@@ -1311,17 +1373,6 @@ for x in effective_scanlist:
 			pkgs[pf] = Package(cpv=cpv, metadata=myaux,
 				root_config=root_config, type_name="ebuild")
 
-	# Sort ebuilds in ascending order for the KEYWORDS.dropped check.
-	pkgsplits = {}
-	for i in range(len(ebuildlist)):
-		ebuild_split = portage.pkgsplit(ebuildlist[i])
-		pkgsplits[ebuild_split] = ebuildlist[i]
-		ebuildlist[i] = ebuild_split
-	ebuildlist.sort(key=cmp_sort_key(portage.pkgcmp))
-	for i in range(len(ebuildlist)):
-		ebuildlist[i] = pkgsplits[ebuildlist[i]]
-	del pkgsplits
-
 	slot_keywords = {}
 
 	if len(pkgs) != len(ebuildlist):
@@ -1333,8 +1384,20 @@ for x in effective_scanlist:
 		can_force = False
 		continue
 
+	# Sort ebuilds in ascending order for the KEYWORDS.dropped check.
+	ebuildlist = sorted(pkgs.values())
+	ebuildlist = [pkg.pf for pkg in ebuildlist]
+
 	for y in checkdirlist:
 		m = disallowed_filename_chars_re.search(y.strip(os.sep))
+		if m is not None:
+			y_relative = os.path.join(checkdir_relative, y)
+			if vcs is not None and not vcs_new_changed(y_relative):
+				# If the file isn't in the VCS new or changed set, then
+				# assume that it's an irrelevant temporary file (Manifest
+				# entries are not generated for file names containing
+				# prohibited characters). See bug #406877.
+				m = None
 		if m is not None:
 			stats["file.name"] += 1
 			fails["file.name"].append("%s/%s: char '%s'" % \
@@ -1504,20 +1567,27 @@ for x in effective_scanlist:
 			m = disallowed_filename_chars_re.search(
 				os.path.basename(y.rstrip(os.sep)))
 			if m is not None:
+				y_relative = os.path.join(checkdir_relative, "files", y)
+				if vcs is not None and not vcs_new_changed(y_relative):
+					# If the file isn't in the VCS new or changed set, then
+					# assume that it's an irrelevant temporary file (Manifest
+					# entries are not generated for file names containing
+					# prohibited characters). See bug #406877.
+					m = None
+			if m is not None:
 				stats["file.name"] += 1
 				fails["file.name"].append("%s/files/%s: char '%s'" % \
 					(checkdir, y, m.group(0)))
 
 			if desktop_file_validate and desktop_pattern.match(y):
-				status, cmd_output = subprocess_getstatusoutput(
-					"'%s' '%s'" % (desktop_file_validate, full_path))
-				if os.WIFEXITED(status) and os.WEXITSTATUS(status) != os.EX_OK:
+				cmd_output = validate_desktop_entry(full_path)
+				if cmd_output:
 					# Note: in the future we may want to grab the
 					# warnings in addition to the errors. We're
 					# just doing errors now since we don't want
 					# to generate too much noise at first.
 					error_re = re.compile(r'.*\s*error:\s*(.*)')
-					for line in cmd_output.splitlines():
+					for line in cmd_output:
 						error_match = error_re.match(line)
 						if error_match is None:
 							continue
@@ -1741,7 +1811,7 @@ for x in effective_scanlist:
 		Ebuilds that inherit a "Live" eclass (darcs,subversion,git,cvs,etc..) should
 		not be allowed to be marked stable
 		"""
-		if live_ebuild:
+		if live_ebuild and repo_config.name == "gentoo":
 			bad_stable_keywords = []
 			for keyword in keywords:
 				if not keyword.startswith("~") and \
@@ -1813,11 +1883,24 @@ for x in effective_scanlist:
 					if atom == "||":
 						continue
 
-					if not portdb.xmatch("match-all", atom) and \
+					# Skip dependency.unknown for blockers, so that we
+					# don't encourage people to remove necessary blockers,
+					# as discussed in bug #382407.
+					if atom.blocker is None and \
+						not portdb.xmatch("match-all", atom) and \
 						not atom.cp.startswith("virtual/"):
 						unknown_pkgs.add((mytype, atom.unevaluated_atom))
 
 					is_blocker = atom.blocker
+
+					if catdir != "virtual":
+						if not is_blocker and \
+							atom.cp in suspect_virtual:
+							stats['virtual.suspect'] += 1
+							fails['virtual.suspect'].append(
+								relative_path +
+								": %s: consider using '%s' instead of '%s'" %
+								(mytype, suspect_virtual[atom.cp], atom))
 
 					if mytype == "DEPEND" and \
 						not is_blocker and \
@@ -1905,12 +1988,12 @@ for x in effective_scanlist:
 		#keyword checks
 		myuse = myaux["KEYWORDS"].split()
 		for mykey in myuse:
-			myskey=mykey[:]
-			if myskey[0]=="-":
-				myskey=myskey[1:]
-			if myskey[0]=="~":
-				myskey=myskey[1:]
-			if mykey!="-*":
+			if mykey not in ("-*", "*", "~*"):
+				myskey = mykey
+				if myskey[:1] == "-":
+					myskey = myskey[1:]
+				if myskey[:1] == "~":
+					myskey = myskey[1:]
 				if myskey not in kwlist:
 					stats["KEYWORDS.invalid"] += 1
 					fails["KEYWORDS.invalid"].append(x+"/"+y+".ebuild: %s" % mykey)
@@ -1997,12 +2080,13 @@ for x in effective_scanlist:
 					dep_settings = portage.config(
 						config_profile_path=prof.abs_path,
 						config_incrementals=repoman_incrementals,
+						config_root=config_root,
 						local_config=False,
 						_unmatched_removal=options.unmatched_removal,
 						env=env)
 					dep_settings.categories = repoman_settings.categories
 					if options.without_mask:
-						dep_settings._mask_manager = \
+						dep_settings._mask_manager_obj = \
 							copy.deepcopy(dep_settings._mask_manager)
 						dep_settings._mask_manager._pmaskdict.clear()
 					arch_caches[prof.sub_path] = dep_settings
@@ -2454,6 +2538,15 @@ else:
 			clnew = [elem[cdrlen:] for elem in mynew if elem.startswith(checkdir_relative)]
 			clremoved = [elem[cdrlen:] for elem in myremoved if elem.startswith(checkdir_relative)]
 			clchanged = [elem[cdrlen:] for elem in mychanged if elem.startswith(checkdir_relative)]
+
+			# Skip ChangeLog generation if only the Manifest was modified,
+			# as discussed in bug #398009.
+			nontrivial_cl_files = set()
+			nontrivial_cl_files.update(clnew, clremoved, clchanged)
+			nontrivial_cl_files.difference_update(['Manifest'])
+			if not nontrivial_cl_files and options.echangelog != 'force':
+				continue
+
 			new_changelog = utilities.UpdateChangeLog(checkdir_relative,
 				committer_name, changelog_msg,
 				os.path.join(repodir, 'skel.ChangeLog'),
@@ -2471,6 +2564,11 @@ else:
 				# myautoadd is appended to myupdates below
 			else:
 				myupdates.append(changelog_path)
+
+			if options.ask and not options.pretend:
+				# regenerate Manifest for modified ChangeLog (bug #420735)
+				repoman_settings["O"] = checkdir
+				digestgen(mysettings=repoman_settings, myportdb=portdb)
 
 	if myautoadd:
 		print(">>> Auto-Adding missing Manifest/ChangeLog file(s)...")
@@ -2555,7 +2653,7 @@ else:
 
 	if options.ask and userquery('Commit changes?', True) != 'Yes':
 		print("* aborting commit.")
-		sys.exit(1)
+		sys.exit(128 + signal.SIGINT)
 
 	# Handle the case where committed files have keywords which
 	# will change and need a priming commit before the Manifest
@@ -2680,7 +2778,10 @@ else:
 			for x in sorted(vcs_files_to_cps(
 				chain(myupdates, myremoved, mymanifests))):
 				repoman_settings["O"] = os.path.join(repodir, x)
-				gpgsign(os.path.join(repoman_settings["O"], "Manifest"))
+				manifest_path = os.path.join(repoman_settings["O"], "Manifest")
+				if not os.path.exists(manifest_path):
+					continue
+				gpgsign(manifest_path)
 		except portage.exception.PortageException as e:
 			portage.writemsg("!!! %s\n" % str(e))
 			portage.writemsg("!!! Disabled FEATURES='sign'\n")
@@ -2752,6 +2853,13 @@ else:
 			else:
 				retval = spawn(commit_cmd, env=os.environ)
 				if retval != os.EX_OK:
+
+					if repo_config.sign_commit and vcs == 'git' and \
+						not git_supports_gpg_sign():
+						# Inform user that newer git is needed (bug #403323).
+						logging.error(
+							"Git >=1.7.9 is required for signed commits!")
+
 					writemsg_level(("!!! Exiting on %s (shell) " + \
 						"error code: %s\n") % (vcs, retval),
 						level=logging.ERROR, noiselevel=-1)

@@ -27,6 +27,12 @@ from portage import _unicode_encode
 from portage import _encodings
 from portage import manifest
 
+_valid_profile_formats = frozenset(
+	['pms', 'portage-1', 'portage-2'])
+
+_portage1_profiles_allow_directories = frozenset(
+	["portage-1-compat", "portage-1", 'portage-2'])
+
 _repo_name_sub_re = re.compile(r'[^\w-]')
 
 def _gen_valid_repo(name):
@@ -45,13 +51,13 @@ def _gen_valid_repo(name):
 class RepoConfig(object):
 	"""Stores config of one repository"""
 
-	__slots__ = ('aliases', 'allow_missing_manifest',
+	__slots__ = ('aliases', 'allow_missing_manifest', 'allow_provide_virtual',
 		'cache_formats', 'create_manifest', 'disable_manifest', 'eapi',
 		'eclass_db', 'eclass_locations', 'eclass_overrides', 'format', 'location',
 		'main_repo', 'manifest_hashes', 'masters', 'missing_repo_name',
-		'name', 'priority', 'sign_manifest', 'sync', 'thin_manifest',
-		'update_changelog', 'user_location', 'portage1_profiles',
-		'portage1_profiles_compat')
+		'name', 'portage1_profiles', 'portage1_profiles_compat', 'priority',
+		'profile_formats', 'sign_commit', 'sign_manifest', 'sync',
+		'thin_manifest', 'update_changelog', 'user_location')
 
 	def __init__(self, name, repo_opts):
 		"""Build a RepoConfig with options in repo_opts
@@ -117,9 +123,13 @@ class RepoConfig(object):
 		self.eapi = eapi
 		self.name = name
 		self.missing_repo_name = missing
+		# sign_commit is disabled by default, since it requires Git >=1.7.9,
+		# and key_id configured by `git config user.signingkey key_id`
+		self.sign_commit = False
 		self.sign_manifest = True
 		self.thin_manifest = False
 		self.allow_missing_manifest = False
+		self.allow_provide_virtual = False
 		self.create_manifest = True
 		self.disable_manifest = False
 		self.manifest_hashes = None
@@ -146,12 +156,14 @@ class RepoConfig(object):
 				# them the ability to do incremental overrides
 				self.aliases = layout_data['aliases'] + tuple(aliases)
 
-			for value in ('allow-missing-manifest', 'cache-formats',
+			for value in ('allow-missing-manifest',
+				'allow-provide-virtual', 'cache-formats',
 				'create-manifest', 'disable-manifest', 'manifest-hashes',
-				'sign-manifest', 'thin-manifest', 'update-changelog'):
+				'profile-formats',
+				'sign-commit', 'sign-manifest', 'thin-manifest', 'update-changelog'):
 				setattr(self, value.lower().replace("-", "_"), layout_data[value])
 
-			self.portage1_profiles = any(x.startswith("portage-1") \
+			self.portage1_profiles = any(x in _portage1_profiles_allow_directories
 				for x in layout_data['profile-formats'])
 			self.portage1_profiles_compat = layout_data['profile-formats'] == ('portage-1-compat',)
 
@@ -341,7 +353,7 @@ class RepoConfigLoader(object):
 					if repos_conf_opts is not None:
 						# Selectively copy only the attributes which
 						# repos.conf is allowed to override.
-						for k in ('aliases', 'eclass_overrides', 'masters'):
+						for k in ('aliases', 'eclass_overrides', 'masters', 'priority'):
 							v = getattr(repos_conf_opts, k, None)
 							if v is not None:
 								setattr(repo, k, v)
@@ -356,7 +368,7 @@ class RepoConfigLoader(object):
 
 					if ov == portdir and portdir not in port_ov:
 						repo.priority = -1000
-					else:
+					elif repo.priority is None:
 						repo.priority = base_priority
 						base_priority += 1
 
@@ -477,13 +489,6 @@ class RepoConfigLoader(object):
 
 		prepos_order = [repo.name for (key, repo) in prepos_order
 			if repo.name == key and repo.location is not None]
-
-		if portdir in location_map:
-			portdir_repo = prepos[location_map[portdir]]
-			portdir_sync = settings.get('SYNC', '')
-			#if SYNC variable is set and not overwritten by repos.conf
-			if portdir_sync and not portdir_repo.sync:
-				portdir_repo.sync = portdir_sync
 
 		if prepos['DEFAULT'].main_repo is None or \
 			prepos['DEFAULT'].main_repo not in prepos:
@@ -688,6 +693,12 @@ def parse_layout_conf(repo_location, repo_name=None):
 	data['masters'] = masters
 	data['aliases'] = tuple(layout_data.get('aliases', '').split())
 
+	data['allow-provide-virtual'] = \
+		layout_data.get('allow-provide-virtuals', 'false').lower() == 'true'
+
+	data['sign-commit'] = layout_data.get('sign-commits', 'false').lower() \
+		== 'true'
+
 	data['sign-manifest'] = layout_data.get('sign-manifests', 'true').lower() \
 		== 'true'
 
@@ -701,10 +712,10 @@ def parse_layout_conf(repo_location, repo_name=None):
 
 	# for compatibility w/ PMS, fallback to pms; but also check if the
 	# cache exists or not.
-	cache_formats = layout_data.get('cache-formats', 'pms').lower().split()
-	if 'pms' in cache_formats and not os.path.isdir(
+	cache_formats = layout_data.get('cache-formats', '').lower().split()
+	if not cache_formats and os.path.isdir(
 		os.path.join(repo_location, 'metadata', 'cache')):
-		cache_formats.remove('pms')
+		cache_formats = ['pms']
 	data['cache-formats'] = tuple(cache_formats)
 
 	manifest_hashes = layout_data.get('manifest-hashes')
@@ -749,7 +760,7 @@ def parse_layout_conf(repo_location, repo_name=None):
 			raw_formats = ('portage-1-compat',)
 	else:
 		raw_formats = set(raw_formats.split())
-		unknown = raw_formats.difference(['pms', 'portage-1'])
+		unknown = raw_formats.difference(_valid_profile_formats)
 		if unknown:
 			repo_name = _get_repo_name(repo_location, cached=repo_name)
 			warnings.warn((_("Repository named '%(repo_name)s' has unsupported "
@@ -759,7 +770,7 @@ def parse_layout_conf(repo_location, repo_name=None):
 				layout_filename=layout_filename,
 				unknown_fmts=" ".join(unknown))),
 				DeprecationWarning)
-		raw_formats = tuple(raw_formats.intersection(['pms', 'portage-1']))
+		raw_formats = tuple(raw_formats.intersection(_valid_profile_formats))
 	data['profile-formats'] = raw_formats
 
 	return data, layout_errors

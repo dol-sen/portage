@@ -1,4 +1,4 @@
-.TH "PORTAGE" "5" "Oct 2011" "Portage VERSION" "Portage"
+.TH "PORTAGE" "5" "Jun 2012" "Portage VERSION" "Portage"
 .SH NAME
 portage \- the heart of Gentoo
 .SH "DESCRIPTION"
@@ -68,6 +68,9 @@ package-specific bashrc files
 .TP
 .BR /etc/portage/profile/
 site-specific overrides of \fB/etc/make.profile/\fR
+.TP
+.BR /etc/portage/sets/
+user\-defined package sets
 .TP
 .BR /usr/portage/metadata/
 .nf
@@ -730,7 +733,10 @@ masters =
 In this directory additional package\-specific bashrc files can be created.
 Note that if package\-specific environment variable settings are all that's
 needed, then \fB/etc/portage/package.env\fR should be used instead of the
-bashrc approach that is described here.
+bashrc approach that is described here. Also note that special variables
+such as \fBFEATURES\fR and \fBINSTALL_MASK\fR will not produce the intended
+results if they are set in bashrc, and therefore
+\fB/etc/portage/package.env\fR should be used instead.
 
 set_unless_changed and unset_unless_changed functions can be used to set or
 unset given variables only if these variable have not been set to values
@@ -756,6 +762,17 @@ in the following order:
 /etc/portage/env/${CATEGORY}/${P}
 .IP \n+[step].
 /etc/portage/env/${CATEGORY}/${PF}
+.RE
+.TP
+.BR /etc/portage/sets/
+.RS
+For each file in this directory, a package set is created with its name
+corresponding to the name of the file. Each file should contain a list
+of package atoms, one per line. When referencing package sets in
+\fBemerge\fR(1) arguments, the set name is prefixed with \fB@\fR.
+
+Also see \fB/var/lib/portage/world_sets\fR and the \fBemerge\fR(1)
+\fB\-\-list\-sets\fR option.
 .RE
 .TP
 .BR /usr/portage/metadata/
@@ -785,6 +802,9 @@ precedence over settings in \fBlayout.conf\fR, except tools such as
 masters = gentoo java-overlay
 # indicate that this repo can be used as a substitute for foo-overlay
 aliases = foo-overlay
+# sign commits in this repo, which requires Git >=1.7.9, and
+# key configured by `git config user.signingkey key_id`
+sign\-commits = true
 # do not sign manifests in this repo
 sign\-manifests = false
 # thin\-manifests only contain DIST entries
@@ -792,6 +812,8 @@ thin\-manifests = true
 # indicate that this repo requires manifests for each package, and is
 # considered a failure if a manifest file is missing/incorrect
 use\-manifests = strict
+# customize the set of hashes generated for Manifest entries
+manifest\-hashes = SHA256 SHA512 WHIRLPOOL
 # indicate that this repo enables repoman's --echangelog=y option automatically
 update\-changelog = true
 # indicate that this repo contains both md5-dict and pms cache formats,
@@ -800,7 +822,12 @@ cache\-formats = md5-dict pms
 # indicate that this repo contains profiles that may use directories for
 # package.mask, package.provided, package.use, package.use.mask,
 # package.use.force, use.mask and use.force.
-profile\-formats = portage-1
+# profile\-formats = portage-1
+# indicate that paths such as 'gentoo:targets/desktop' or ':targets/desktop' in
+# profile parent files can be used to express paths relative to the root
+# 'profiles' directory of a repository (when the repo name is omitted before
+# the colon, it refers to the current repository the parent file is inside)
+profile\-formats = portage-2
 .fi
 .RE
 .TP
@@ -1069,7 +1096,8 @@ app\-cdr/cdemu
 .TP
 .BR world_sets
 This is like the world file but instead of package atoms it contains
-packages sets which always begin with the @ character.
+packages sets which always begin with the \fB@\fR character. Use
+\fB/etc/portage/sets/\fR to define user package sets.
 
 .I Example:
 .nf

@@ -1,4 +1,4 @@
-# Copyright 2004-2011 Gentoo Foundation
+# Copyright 2004-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 __all__ = ['apply_permissions', 'apply_recursive_permissions',
@@ -41,7 +41,7 @@ from portage import _os_merge
 from portage import _unicode_encode
 from portage import _unicode_decode
 from portage.exception import InvalidAtom, PortageException, FileNotFound, \
-       OperationNotPermitted, PermissionDenied, ReadOnlyFileSystem
+       OperationNotPermitted, ParseError, PermissionDenied, ReadOnlyFileSystem
 from portage.localization import _
 from portage.proxy.objectproxy import ObjectProxy
 from portage.cache.mappings import UserDict
@@ -346,12 +346,11 @@ def grabdict(myfilename, juststrings=0, empty=0, recursive=0, incremental=1):
 	@param incremental: Append to the return list, don't overwrite
 	@type incremental: Boolean (integer)
 	@rtype: Dictionary
-	@returns:
+	@return:
 	1.  Returns the lines in a file in a dictionary, for example:
 		'sys-apps/portage x86 amd64 ppc'
 		would return
 		{ "sys-apps/portage" : [ 'x86', 'amd64', 'ppc' ]
-		the line syntax is key : [list of values]
 	"""
 	newdict={}
 	for x in grablines(myfilename, recursive):
@@ -388,7 +387,9 @@ def read_corresponding_eapi_file(filename):
 	default = "0"
 	eapi_file = os.path.join(os.path.dirname(filename), "eapi")
 	try:
-		f = open(eapi_file, "r")
+		f = io.open(_unicode_encode(eapi_file,
+			encoding=_encodings['fs'], errors='strict'),
+			mode='r', encoding=_encodings['repo.content'], errors='replace')
 		lines = f.readlines()
 		if len(lines) == 1:
 			eapi = lines[0].rstrip("\n")
@@ -446,7 +447,7 @@ def grabfile_package(myfilename, compatlevel=0, recursive=0, allow_wildcard=Fals
 		try:
 			pkg = Atom(pkg, allow_wildcard=allow_wildcard, allow_repo=allow_repo, eapi=eapi)
 		except InvalidAtom as e:
-			writemsg(_("--- Invalid atom in %s: %s\n") % (myfilename, e),
+			writemsg(_("--- Invalid atom in %s: %s\n") % (source_file, e),
 				noiselevel=-1)
 		else:
 			if pkg_orig == str(pkg):
@@ -468,7 +469,15 @@ def grablines(myfilename, recursive=0, remember_source_file=False):
 	if recursive and os.path.isdir(myfilename):
 		if os.path.basename(myfilename) in _ignorecvs_dirs:
 			return mylines
-		dirlist = os.listdir(myfilename)
+		try:
+			dirlist = os.listdir(myfilename)
+		except OSError as e:
+			if e.errno == PermissionDenied.errno:
+				raise PermissionDenied(myfilename)
+			elif e.errno in (errno.ENOENT, errno.ESTALE):
+				return mylines
+			else:
+				raise
 		dirlist.sort()
 		for f in dirlist:
 			if not f.startswith(".") and not f.endswith("~"):
@@ -487,7 +496,10 @@ def grablines(myfilename, recursive=0, remember_source_file=False):
 		except IOError as e:
 			if e.errno == PermissionDenied.errno:
 				raise PermissionDenied(myfilename)
-			pass
+			elif e.errno in (errno.ENOENT, errno.ESTALE):
+				pass
+			else:
+				raise
 	return mylines
 
 def writedict(mydict,myfilename,writekey=True):
@@ -572,6 +584,7 @@ def getconfig(mycfg, tolerant=0, allow_sourcing=False, expand=True):
 		writemsg(("!!! " + _("Please use dos2unix to convert line endings " + \
 			"in config file: '%s'") + "\n") % mycfg, noiselevel=-1)
 
+	lex = None
 	try:
 		if tolerant:
 			shlex_class = _tolerant_shlex
@@ -595,64 +608,63 @@ def getconfig(mycfg, tolerant=0, allow_sourcing=False, expand=True):
 				break;
 			equ=lex.get_token()
 			if (equ==''):
-				#unexpected end of file
-				#lex.error_leader(self.filename,lex.lineno)
+				msg = lex.error_leader() + _("Unexpected EOF")
 				if not tolerant:
-					writemsg(_("!!! Unexpected end of config file: variable %s\n") % key,
-						noiselevel=-1)
-					raise Exception(_("ParseError: Unexpected EOF: %s: on/before line %s") % (mycfg, lex.lineno))
+					raise ParseError(msg)
 				else:
+					writemsg("%s\n" % msg, noiselevel=-1)
 					return mykeys
 			elif (equ!='='):
-				#invalid token
-				#lex.error_leader(self.filename,lex.lineno)
+				msg = lex.error_leader() + \
+					_("Invalid token '%s' (not '=')") % (equ,)
 				if not tolerant:
-					raise Exception(_("ParseError: Invalid token "
-						"'%s' (not '='): %s: line %s") % \
-						(equ, mycfg, lex.lineno))
+					raise ParseError(msg)
 				else:
+					writemsg("%s\n" % msg, noiselevel=-1)
 					return mykeys
 			val=lex.get_token()
 			if val is None:
-				#unexpected end of file
-				#lex.error_leader(self.filename,lex.lineno)
+				msg = lex.error_leader() + \
+					_("Unexpected end of config file: variable '%s'") % (key,)
 				if not tolerant:
-					writemsg(_("!!! Unexpected end of config file: variable %s\n") % key,
-						noiselevel=-1)
-					raise portage.exception.CorruptionError(_("ParseError: Unexpected EOF: %s: line %s") % (mycfg, lex.lineno))
+					raise ParseError(msg)
 				else:
+					writemsg("%s\n" % msg, noiselevel=-1)
 					return mykeys
 			key = _unicode_decode(key)
 			val = _unicode_decode(val)
 
 			if _invalid_var_name_re.search(key) is not None:
+				msg = lex.error_leader() + \
+					_("Invalid variable name '%s'") % (key,)
 				if not tolerant:
-					raise Exception(_(
-						"ParseError: Invalid variable name '%s': line %s") % \
-						(key, lex.lineno - 1))
-				writemsg(_("!!! Invalid variable name '%s': line %s in %s\n") \
-					% (key, lex.lineno - 1, mycfg), noiselevel=-1)
+					raise ParseError(msg)
+				writemsg("%s\n" % msg, noiselevel=-1)
 				continue
 
 			if expand:
-				mykeys[key] = varexpand(val, expand_map)
+				mykeys[key] = varexpand(val, mydict=expand_map,
+					error_leader=lex.error_leader)
 				expand_map[key] = mykeys[key]
 			else:
 				mykeys[key] = val
 	except SystemExit as e:
 		raise
 	except Exception as e:
-		raise portage.exception.ParseError(str(e)+" in "+mycfg)
+		if isinstance(e, ParseError) or lex is None:
+			raise
+		msg = _unicode_decode("%s%s") % (lex.error_leader(), e)
+		writemsg("%s\n" % msg, noiselevel=-1)
+		raise
+
 	return mykeys
-	
-#cache expansions of constant strings
-cexpand={}
-def varexpand(mystring, mydict=None):
+
+_varexpand_word_chars = frozenset(string.ascii_letters + string.digits + "_")
+_varexpand_unexpected_eof_msg = "unexpected EOF while looking for matching `}'"
+
+def varexpand(mystring, mydict=None, error_leader=None):
 	if mydict is None:
 		mydict = {}
-	newstring = cexpand.get(" "+mystring, None)
-	if newstring is not None:
-		return newstring
 
 	"""
 	new variable expansion code.  Preserves quotes, handles \n, etc.
@@ -660,36 +672,37 @@ def varexpand(mystring, mydict=None):
 	This would be a good bunch of code to port to C.
 	"""
 	numvars=0
-	mystring=" "+mystring
 	#in single, double quotes
 	insing=0
 	indoub=0
-	pos=1
-	newstring=" "
-	while (pos<len(mystring)):
-		if (mystring[pos]=="'") and (mystring[pos-1]!="\\"):
+	pos = 0
+	length = len(mystring)
+	newstring = []
+	while pos < length:
+		current = mystring[pos]
+		if current == "'":
 			if (indoub):
-				newstring=newstring+"'"
+				newstring.append("'")
 			else:
-				newstring += "'" # Quote removal is handled by shlex.
+				newstring.append("'") # Quote removal is handled by shlex.
 				insing=not insing
 			pos=pos+1
 			continue
-		elif (mystring[pos]=='"') and (mystring[pos-1]!="\\"):
+		elif current == '"':
 			if (insing):
-				newstring=newstring+'"'
+				newstring.append('"')
 			else:
-				newstring += '"' # Quote removal is handled by shlex.
+				newstring.append('"') # Quote removal is handled by shlex.
 				indoub=not indoub
 			pos=pos+1
 			continue
 		if (not insing): 
 			#expansion time
-			if (mystring[pos]=="\n"):
+			if current == "\n":
 				#convert newlines to spaces
-				newstring=newstring+" "
-				pos=pos+1
-			elif (mystring[pos]=="\\"):
+				newstring.append(" ")
+				pos += 1
+			elif current == "\\":
 				# For backslash expansion, this function used to behave like
 				# echo -e, but that's not needed for our purposes. We want to
 				# behave like bash does when expanding a variable assignment
@@ -699,19 +712,27 @@ def varexpand(mystring, mydict=None):
 				# escaped quotes here, since getconfig() uses shlex
 				# to handle that earlier.
 				if (pos+1>=len(mystring)):
-					newstring=newstring+mystring[pos]
+					newstring.append(current)
 					break
 				else:
-					a = mystring[pos + 1]
-					pos = pos + 2
-					if a in ("\\", "$"):
-						newstring = newstring + a
-					elif a == "\n":
+					current = mystring[pos + 1]
+					pos += 2
+					if current == "$":
+						newstring.append(current)
+					elif current == "\\":
+						newstring.append(current)
+						# BUG: This spot appears buggy, but it's intended to
+						# be bug-for-bug compatible with existing behavior.
+						if pos < length and \
+							mystring[pos] in ("'", '"', "$"):
+							newstring.append(mystring[pos])
+							pos += 1
+					elif current == "\n":
 						pass
 					else:
-						newstring = newstring + mystring[pos-2:pos]
+						newstring.append(mystring[pos - 2:pos])
 					continue
-			elif (mystring[pos]=="$") and (mystring[pos-1]!="\\"):
+			elif current == "$":
 				pos=pos+1
 				if mystring[pos]=="{":
 					pos=pos+1
@@ -719,11 +740,13 @@ def varexpand(mystring, mydict=None):
 				else:
 					braced=False
 				myvstart=pos
-				validchars=string.ascii_letters+string.digits+"_"
-				while mystring[pos] in validchars:
+				while mystring[pos] in _varexpand_word_chars:
 					if (pos+1)>=len(mystring):
 						if braced:
-							cexpand[mystring]=""
+							msg = _varexpand_unexpected_eof_msg
+							if error_leader is not None:
+								msg = error_leader() + msg
+							writemsg(msg + "\n", noiselevel=-1)
 							return ""
 						else:
 							pos=pos+1
@@ -732,25 +755,33 @@ def varexpand(mystring, mydict=None):
 				myvarname=mystring[myvstart:pos]
 				if braced:
 					if mystring[pos]!="}":
-						cexpand[mystring]=""
+						msg = _varexpand_unexpected_eof_msg
+						if error_leader is not None:
+							msg = error_leader() + msg
+						writemsg(msg + "\n", noiselevel=-1)
 						return ""
 					else:
 						pos=pos+1
 				if len(myvarname)==0:
-					cexpand[mystring]=""
+					msg = "$"
+					if braced:
+						msg += "{}"
+					msg += ": bad substitution"
+					if error_leader is not None:
+						msg = error_leader() + msg
+					writemsg(msg + "\n", noiselevel=-1)
 					return ""
 				numvars=numvars+1
 				if myvarname in mydict:
-					newstring=newstring+mydict[myvarname] 
+					newstring.append(mydict[myvarname])
 			else:
-				newstring=newstring+mystring[pos]
-				pos=pos+1
+				newstring.append(current)
+				pos += 1
 		else:
-			newstring=newstring+mystring[pos]
-			pos=pos+1
-	if numvars==0:
-		cexpand[mystring]=newstring[1:]
-	return newstring[1:]	
+			newstring.append(current)
+			pos += 1
+
+	return "".join(newstring)
 
 # broken and removed, but can still be imported
 pickle_write = None

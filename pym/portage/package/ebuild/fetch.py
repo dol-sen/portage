@@ -1,4 +1,4 @@
-# Copyright 2010-2011 Gentoo Foundation
+# Copyright 2010-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 from __future__ import print_function
@@ -46,6 +46,9 @@ _userpriv_spawn_kwargs = (
 	("umask",  0o02),
 )
 
+def _hide_url_passwd(url):
+	return re.sub(r'//(.+):.+@(.+)', r'//\1:*password*@\2', url)
+
 def _spawn_fetch(settings, args, **kwargs):
 	"""
 	Spawn a process with appropriate settings for fetching, including
@@ -66,7 +69,8 @@ def _spawn_fetch(settings, args, **kwargs):
 		}
 
 	if "userfetch" in settings.features and \
-		os.getuid() == 0 and portage_gid and portage_uid:
+		os.getuid() == 0 and portage_gid and portage_uid and \
+		hasattr(os, "setgroups"):
 		kwargs.update(_userpriv_spawn_kwargs)
 
 	spawn_func = spawn
@@ -948,7 +952,7 @@ def fetch(myuris, mysettings, listonly=0, fetchonly=0,
 						locfetch=fetchcommand
 						command_var = fetchcommand_var
 					writemsg_stdout(_(">>> Downloading '%s'\n") % \
-						re.sub(r'//(.+):.+@(.+)/',r'//\1:*password*@\2/', loc))
+						_hide_url_passwd(loc))
 					variables = {
 						"DISTDIR": mysettings["DISTDIR"],
 						"URI":     loc,
@@ -1027,18 +1031,19 @@ def fetch(myuris, mysettings, listonly=0, fetchonly=0,
 								# Fetch failed... Try the next one... Kill 404 files though.
 								if (mystat[stat.ST_SIZE]<100000) and (len(myfile)>4) and not ((myfile[-5:]==".html") or (myfile[-4:]==".htm")):
 									html404=re.compile("<title>.*(not found|404).*</title>",re.I|re.M)
-									if html404.search(io.open(
+									with io.open(
 										_unicode_encode(myfile_path,
 										encoding=_encodings['fs'], errors='strict'),
 										mode='r', encoding=_encodings['content'], errors='replace'
-										).read()):
-										try:
-											os.unlink(mysettings["DISTDIR"]+"/"+myfile)
-											writemsg(_(">>> Deleting invalid distfile. (Improper 404 redirect from server.)\n"))
-											fetched = 0
-											continue
-										except (IOError, OSError):
-											pass
+										) as f:
+										if html404.search(f.read()):
+											try:
+												os.unlink(mysettings["DISTDIR"]+"/"+myfile)
+												writemsg(_(">>> Deleting invalid distfile. (Improper 404 redirect from server.)\n"))
+												fetched = 0
+												continue
+											except (IOError, OSError):
+												pass
 								fetched = 1
 								continue
 							if True:

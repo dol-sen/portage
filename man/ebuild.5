@@ -202,7 +202,7 @@ who uses the \fBebuild\fR(1) and \fBrepoman\fR(1) commands with this
 package will be required to have a version of portage that recognizes
 the EAPI to which this package conforms.
 .TP
-\fBSRC_URI\fR = \fI"http://happy.com/little/${P}.tar.gz"\fR
+\fBSRC_URI\fR = \fI"http://example.com/path/${P}.tar.gz"\fR
 Contains a list of URIs for the required source files.  It can contain
 multiple URIs for a single source file.  The list is processed in order
 if the file was not found on any of the \fIGENTOO_MIRRORS\fR.
@@ -211,7 +211,7 @@ customized with a "->" operator on the right hand side, followed by the
 desired output file name. All tokens, including the operator and output
 file name, should be separated by whitespace.
 .TP
-\fBHOMEPAGE\fR = \fI"http://happy.com/"\fR
+\fBHOMEPAGE\fR = \fI"http://example.com/"\fR
 Should contain a list of URIs for the sources main sites and other further
 package dependent information.
 .TP
@@ -468,9 +468,9 @@ will use that to consider the dependency satisfied.
 .TP
 \fBRDEPEND\fR
 This should contain a list of all packages that are required for this
-program to run (aka runtime depend). If this is not set in \fBEAPI\fR
-3 or earlier, then it defaults to the value of \fBDEPEND\fR. In
-EAPI 4 or later, \fBRDEPEND\fR will never be implicitly set.
+program to run (aka runtime depend). If this is not set in \fBEAPI 3\fR
+or earlier, then it defaults to the value of \fBDEPEND\fR. In
+\fBEAPI 4\fR or later, \fBRDEPEND\fR will never be implicitly set.
 .br
 You may use the same syntax to vary dependencies as seen above in \fBDEPEND\fR.
 .TP
