@@ -13,7 +13,15 @@ from portage.checksum import perform_md5
 class CleanConfig(object):
 
 	short_desc = "Discard any no longer installed configs from emerge's tracker list"
-	target = os.path.join(portage.settings["EROOT"], PRIVATE_PATH, 'config')
+
+	def __init__(self):
+		# needed due to a portage.settings failure in runtests.sh
+		from portage._sets import load_default_config
+		setconfig = load_default_config(portage.settings,
+			portage.db[portage.settings['EROOT']])
+
+		self.target = os.path.join(portage.settings["EROOT"], PRIVATE_PATH, 'config')
+
 
 	def name():
 		return "cleanconfig"
