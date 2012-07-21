@@ -150,7 +150,7 @@ prepcompress() {
 install_qa_check() {
 	local f i qa_var x
 	[[ " ${FEATURES} " == *" force-prefix "* ]] || \
-		case "$EAPI" in 0|1|2) local ED=${D} ;; esac
+		case "$EAPI" in 0|1|2) local EPREFIX= ED=${D} ;; esac
 
 	cd "${ED}" || die "cd failed"
 
@@ -256,6 +256,18 @@ install_qa_check() {
 		eqawarn "QA Notice: This ebuild installs into the following deprecated directories:"
 		eqawarn
 		eqawarn "$f"
+	fi
+
+	if [[ -d ${ED}/etc/udev/rules.d ]] ; then
+		f=
+		for x in $(ls "${ED}/etc/udev/rules.d") ; do
+			f+="  etc/udev/rules.d/$x\n"
+		done
+		if [[ -n $f ]] ; then
+			eqawarn "QA Notice: udev rules should be installed in /lib/udev/rules.d:"
+			eqawarn
+			eqawarn "$f"
+		fi
 	fi
 
 	# Now we look for all world writable files.
@@ -421,43 +433,6 @@ install_qa_check() {
 			fi
 		fi
 
-		# Save NEEDED information after removing self-contained providers
-		rm -f "$PORTAGE_BUILDDIR"/build-info/NEEDED{,.ELF.2}
-		scanelf -qyRF '%a;%p;%S;%r;%n' "${D}" | { while IFS= read -r l; do
-			arch=${l%%;*}; l=${l#*;}
-			obj="/${l%%;*}"; l=${l#*;}
-			soname=${l%%;*}; l=${l#*;}
-			rpath=${l%%;*}; l=${l#*;}; [ "${rpath}" = "  -  " ] && rpath=""
-			needed=${l%%;*}; l=${l#*;}
-			if [ -z "${rpath}" -o -n "${rpath//*ORIGIN*}" ]; then
-				# object doesn't contain $ORIGIN in its runpath attribute
-				echo "${obj} ${needed}"	>> "${PORTAGE_BUILDDIR}"/build-info/NEEDED
-				echo "${arch:3};${obj};${soname};${rpath};${needed}" >> "${PORTAGE_BUILDDIR}"/build-info/NEEDED.ELF.2
-			else
-				dir=${obj%/*}
-				# replace $ORIGIN with the dirname of the current object for the lookup
-				opath=$(echo :${rpath}: | sed -e "s#.*:\(.*\)\$ORIGIN\(.*\):.*#\1${dir}\2#")
-				sneeded=$(echo ${needed} | tr , ' ')
-				rneeded=""
-				for lib in ${sneeded}; do
-					found=0
-					for path in ${opath//:/ }; do
-						[ -e "${D}/${path}/${lib}" ] && found=1 && break
-					done
-					[ "${found}" -eq 0 ] && rneeded="${rneeded},${lib}"
-				done
-				rneeded=${rneeded:1}
-				if [ -n "${rneeded}" ]; then
-					echo "${obj} ${rneeded}" >> "${PORTAGE_BUILDDIR}"/build-info/NEEDED
-					echo "${arch:3};${obj};${soname};${rpath};${rneeded}" >> "${PORTAGE_BUILDDIR}"/build-info/NEEDED.ELF.2
-				fi
-			fi
-		done }
-
-		[ -n "${QA_SONAME_NO_SYMLINK}" ] && \
-			echo "${QA_SONAME_NO_SYMLINK}" > \
-			"${PORTAGE_BUILDDIR}"/build-info/QA_SONAME_NO_SYMLINK
-
 		if [[ ${insecure_rpath} -eq 1 ]] ; then
 			die "Aborting due to serious QA concerns with RUNPATH/RPATH"
 		elif [[ -n ${die_msg} ]] && has stricter ${FEATURES} ; then
@@ -535,6 +510,34 @@ install_qa_check() {
 		PORTAGE_QUIET=${tmp_quiet}
 	fi
 
+	# Create NEEDED.ELF.2 regardless of RESTRICT=binchecks, since this info is
+	# too useful not to have (it's required for things like preserve-libs), and
+	# it's tempting for ebuild authors to set RESTRICT=binchecks for packages
+	# containing pre-built binaries.
+	if type -P scanelf > /dev/null ; then
+		# Save NEEDED information after removing self-contained providers
+		rm -f "$PORTAGE_BUILDDIR"/build-info/NEEDED{,.ELF.2}
+		scanelf -qyRF '%a;%p;%S;%r;%n' "${D}" | { while IFS= read -r l; do
+			arch=${l%%;*}; l=${l#*;}
+			obj="/${l%%;*}"; l=${l#*;}
+			soname=${l%%;*}; l=${l#*;}
+			rpath=${l%%;*}; l=${l#*;}; [ "${rpath}" = "  -  " ] && rpath=""
+			needed=${l%%;*}; l=${l#*;}
+			echo "${obj} ${needed}"	>> "${PORTAGE_BUILDDIR}"/build-info/NEEDED
+			echo "${arch:3};${obj};${soname};${rpath};${needed}" >> "${PORTAGE_BUILDDIR}"/build-info/NEEDED.ELF.2
+		done }
+
+		[ -n "${QA_SONAME_NO_SYMLINK}" ] && \
+			echo "${QA_SONAME_NO_SYMLINK}" > \
+			"${PORTAGE_BUILDDIR}"/build-info/QA_SONAME_NO_SYMLINK
+
+		if has binchecks ${RESTRICT} && \
+			[ -s "${PORTAGE_BUILDDIR}/build-info/NEEDED.ELF.2" ] ; then
+			eqawarn "QA Notice: RESTRICT=binchecks prevented checks on these ELF files:"
+			eqawarn "$(while read -r x; do x=${x#*;} ; x=${x%%;*} ; echo "${x#${EPREFIX}}" ; done < "${PORTAGE_BUILDDIR}"/build-info/NEEDED.ELF.2)"
+		fi
+	fi
+
 	local unsafe_files=$(find "${ED}" -type f '(' -perm -2002 -o -perm -4002 ')' | sed -e "s:^${ED}:/:")
 	if [[ -n ${unsafe_files} ]] ; then
 		eqawarn "QA Notice: Unsafe files detected (set*id and world writable)"
@@ -563,6 +566,13 @@ install_qa_check() {
 			bash -n "${i}" || die "The init.d file has syntax errors: ${i}"
 		done
 	done
+
+	# Look for leaking LDFLAGS into pkg-config files
+	f=$(egrep -sH '^Libs.*-Wl,(-O[012]|--hash-style)' "${ED}"/usr/*/pkgconfig/*.pc)
+	if [[ -n ${f} ]] ; then
+		eqawarn "QA Notice: pkg-config files with wrong LDFLAGS detected:"
+		eqawarn "${f//${D}}"
+	fi
 
 	# this should help to ensure that all (most?) shared libraries are executable
 	# and that all libtool scripts / static libraries are not executable
@@ -763,22 +773,21 @@ install_qa_check() {
 		fi
 		if [[ ${abort} == "yes" ]] ; then
 			if [[ $gentoo_bug = yes || $always_overflow = yes ]] ; then
-				die "install aborted due to" \
-					"severe warnings shown above"
+				die "install aborted due to severe warnings shown above"
 			else
 				echo "Please do not file a Gentoo bug and instead" \
 				"report the above QA issues directly to the upstream" \
 				"developers of this software." | fmt -w 70 | \
 				while read -r line ; do eqawarn "${line}" ; done
 				eqawarn "Homepage: ${HOMEPAGE}"
-				has stricter ${FEATURES} && die "install aborted due to" \
-					"severe warnings shown above"
+				has stricter ${FEATURES} && \
+					die "install aborted due to severe warnings shown above"
 			fi
 		fi
 	fi
 
 	# Portage regenerates this on the installed system.
-	rm -f "${ED}"/usr/share/info/dir{,.gz,.bz2}
+	rm -f "${ED}"/usr/share/info/dir{,.gz,.bz2} || die "rm failed!"
 
 	if has multilib-strict ${FEATURES} && \
 	   [[ -x /usr/bin/file && -x /usr/bin/find ]] && \
@@ -1076,13 +1085,15 @@ preinst_selinux_labels() {
 		# SELinux file labeling (needs to always be last in dyn_preinst)
 		# only attempt to label if setfiles is executable
 		# and 'context' is available on selinuxfs.
-		if [ -f /selinux/context -a -x /usr/sbin/setfiles -a -x /usr/sbin/selinuxconfig ]; then
+		if [ -f /selinux/context -o -f /sys/fs/selinux/context ] && \
+			[ -x /usr/sbin/setfiles -a -x /usr/sbin/selinuxconfig ]; then
 			vecho ">>> Setting SELinux security labels"
 			(
 				eval "$(/usr/sbin/selinuxconfig)" || \
 					die "Failed to determine SELinux policy paths.";
 	
-				addwrite /selinux/context;
+				addwrite /selinux/context
+				addwrite /sys/fs/selinux/context
 	
 				/usr/sbin/setfiles "${file_contexts_path}" -r "${D}" "${D}"
 			) || die "Failed to set SELinux security labels."
@@ -1095,14 +1106,30 @@ preinst_selinux_labels() {
 }
 
 dyn_package() {
+	local PROOT
 
 	[[ " ${FEATURES} " == *" force-prefix "* ]] || \
-		case "$EAPI" in 0|1|2) local ED=${D} ;; esac
+		case "$EAPI" in 0|1|2) local EPREFIX= ED=${D} ;; esac
 
 	# Make sure $PWD is not ${D} so that we don't leave gmon.out files
 	# in there in case any tools were built with -pg in CFLAGS.
+
 	cd "${T}"
-	install_mask "${ED}" "${PKG_INSTALL_MASK}"
+
+	if [[ -n ${PKG_INSTALL_MASK} ]] ; then
+		PROOT=${T}/packaging/
+		# make a temporary copy of ${D} so that any modifications we do that
+		# are binpkg specific, do not influence the actual installed image.
+		rm -rf "${PROOT}" || die "failed removing stale package tree"
+		cp -pPR $(cp --help | grep -qs -e-l && echo -l) \
+			"${D}" "${PROOT}" \
+			|| die "failed creating packaging tree"
+
+		install_mask "${PROOT%/}${EPREFIX}/" "${PKG_INSTALL_MASK}"
+	else
+		PROOT=${D}
+	fi
+
 	local tar_options=""
 	[[ $PORTAGE_VERBOSE = 1 ]] && tar_options+=" -v"
 	# Sandbox is disabled in case the user wants to use a symlink
@@ -1111,7 +1138,7 @@ dyn_package() {
 	[ -z "${PORTAGE_BINPKG_TMPFILE}" ] && \
 		die "PORTAGE_BINPKG_TMPFILE is unset"
 	mkdir -p "${PORTAGE_BINPKG_TMPFILE%/*}" || die "mkdir failed"
-	tar $tar_options -cf - $PORTAGE_BINPKG_TAR_OPTS -C "${D}" . | \
+	tar $tar_options -cf - $PORTAGE_BINPKG_TAR_OPTS -C "${PROOT}" . | \
 		$PORTAGE_BZIP2_COMMAND -c > "$PORTAGE_BINPKG_TMPFILE"
 	assert "failed to pack binary package: '$PORTAGE_BINPKG_TMPFILE'"
 	PYTHONPATH=${PORTAGE_PYM_PATH}${PYTHONPATH:+:}${PYTHONPATH} \
@@ -1132,6 +1159,9 @@ dyn_package() {
 	[ -n "${md5_hash}" ] && \
 		echo ${md5_hash} > "${PORTAGE_BUILDDIR}"/build-info/BINPKGMD5
 	vecho ">>> Done."
+
+	# cleanup our temp tree
+	[[ -n ${PKG_INSTALL_MASK} ]] && rm -rf "${PROOT}"
 	cd "${PORTAGE_BUILDDIR}"
 	>> "$PORTAGE_BUILDDIR/.packaged" || \
 		die "Failed to create $PORTAGE_BUILDDIR/.packaged"

@@ -1,13 +1,15 @@
-# Copyright 1999-2011 Gentoo Foundation
+# Copyright 1999-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 import errno
 import io
+import re
 import warnings
 
 import portage
 portage.proxy.lazyimport.lazyimport(globals(),
-	'portage.checksum:hashfunc_map,perform_multiple_checksums,verify_all',
+	'portage.checksum:hashfunc_map,perform_multiple_checksums,' + \
+		'verify_all,_filter_unaccelarated_hashes',
 	'portage.util:write_atomic',
 )
 
@@ -22,6 +24,9 @@ from portage.const import (MANIFEST1_HASH_FUNCTIONS, MANIFEST2_HASH_DEFAULTS,
 	MANIFEST2_HASH_FUNCTIONS, MANIFEST2_IDENTIFIERS, MANIFEST2_REQUIRED_HASH)
 from portage.localization import _
 
+# Characters prohibited by repoman's file.name check.
+_prohibited_filename_chars_re = re.compile(r'[^a-zA-Z0-9._\-+:]')
+
 class FileNotInManifestException(PortageException):
 	pass
 
@@ -33,10 +38,14 @@ def manifest2AuxfileFilter(filename):
 	for x in mysplit:
 		if x[:1] == '.':
 			return False
+		if _prohibited_filename_chars_re.search(x) is not None:
+			return False
 	return not filename[:7] == 'digest-'
 
 def manifest2MiscfileFilter(filename):
 	filename = filename.strip(os.sep)
+	if _prohibited_filename_chars_re.search(filename) is not None:
+		return False
 	return not (filename in ["CVS", ".svn", "files", "Manifest"] or filename.endswith(".ebuild"))
 
 def guessManifestFileType(filename):
@@ -498,9 +507,9 @@ class Manifest(object):
 			self.checkFileHashes(idtype, f, ignoreMissing=ignoreMissingFiles)
 	
 	def checkFileHashes(self, ftype, fname, ignoreMissing=False):
-		myhashes = self.fhashdict[ftype][fname]
 		try:
-			ok,reason = verify_all(self._getAbsname(ftype, fname), self.fhashdict[ftype][fname])
+			ok, reason = verify_all(self._getAbsname(ftype, fname),
+				_filter_unaccelarated_hashes(self.fhashdict[ftype][fname]))
 			if not ok:
 				raise DigestException(tuple([self._getAbsname(ftype, fname)]+list(reason)))
 			return ok, reason

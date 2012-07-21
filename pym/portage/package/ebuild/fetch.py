@@ -1,4 +1,4 @@
-# Copyright 2010-2011 Gentoo Foundation
+# Copyright 2010-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 from __future__ import print_function
@@ -25,7 +25,8 @@ portage.proxy.lazyimport.lazyimport(globals(),
 
 from portage import OrderedDict, os, selinux, shutil, _encodings, \
 	_shell_quote, _unicode_encode
-from portage.checksum import hashfunc_map, perform_md5, verify_all
+from portage.checksum import (hashfunc_map, perform_md5, verify_all,
+	_filter_unaccelarated_hashes)
 from portage.const import BASH_BINARY, CUSTOM_MIRRORS_FILE, \
 	GLOBAL_CONFIG_PATH
 from portage.data import portage_gid, portage_uid, secpass, userpriv_groups
@@ -45,6 +46,9 @@ _userpriv_spawn_kwargs = (
 	("groups", userpriv_groups),
 	("umask",  0o02),
 )
+
+def _hide_url_passwd(url):
+	return re.sub(r'//(.+):.+@(.+)', r'//\1:*password*@\2', url)
 
 def _spawn_fetch(settings, args, **kwargs):
 	"""
@@ -66,7 +70,8 @@ def _spawn_fetch(settings, args, **kwargs):
 		}
 
 	if "userfetch" in settings.features and \
-		os.getuid() == 0 and portage_gid and portage_uid:
+		os.getuid() == 0 and portage_gid and portage_uid and \
+		hasattr(os, "setgroups"):
 		kwargs.update(_userpriv_spawn_kwargs)
 
 	spawn_func = spawn
@@ -206,6 +211,7 @@ def _check_distfile(filename, digests, eout, show_errors=1):
 			# Zero-byte distfiles are always invalid.
 			return (False, st)
 	else:
+		digests = _filter_unaccelarated_hashes(digests)
 		if _check_digests(filename, digests, show_errors=show_errors):
 			eout.ebegin("%s %s ;-)" % (os.path.basename(filename),
 				" ".join(sorted(digests))))
@@ -789,8 +795,8 @@ def fetch(myuris, mysettings, listonly=0, fetchonly=0,
 							eout.eend(0)
 							continue
 						else:
-							verified_ok, reason = verify_all(
-								myfile_path, mydigests[myfile])
+							digests = _filter_unaccelarated_hashes(mydigests[myfile])
+							verified_ok, reason = verify_all(myfile_path, digests)
 							if not verified_ok:
 								writemsg(_("!!! Previously fetched"
 									" file: '%s'\n") % myfile, noiselevel=-1)
@@ -812,7 +818,6 @@ def fetch(myuris, mysettings, listonly=0, fetchonly=0,
 								eout = EOutput()
 								eout.quiet = \
 									mysettings.get("PORTAGE_QUIET", None) == "1"
-								digests = mydigests.get(myfile)
 								if digests:
 									digests = list(digests)
 									digests.sort()
@@ -948,7 +953,7 @@ def fetch(myuris, mysettings, listonly=0, fetchonly=0,
 						locfetch=fetchcommand
 						command_var = fetchcommand_var
 					writemsg_stdout(_(">>> Downloading '%s'\n") % \
-						re.sub(r'//(.+):.+@(.+)/',r'//\1:*password*@\2/', loc))
+						_hide_url_passwd(loc))
 					variables = {
 						"DISTDIR": mysettings["DISTDIR"],
 						"URI":     loc,
@@ -1027,18 +1032,19 @@ def fetch(myuris, mysettings, listonly=0, fetchonly=0,
 								# Fetch failed... Try the next one... Kill 404 files though.
 								if (mystat[stat.ST_SIZE]<100000) and (len(myfile)>4) and not ((myfile[-5:]==".html") or (myfile[-4:]==".htm")):
 									html404=re.compile("<title>.*(not found|404).*</title>",re.I|re.M)
-									if html404.search(io.open(
+									with io.open(
 										_unicode_encode(myfile_path,
 										encoding=_encodings['fs'], errors='strict'),
 										mode='r', encoding=_encodings['content'], errors='replace'
-										).read()):
-										try:
-											os.unlink(mysettings["DISTDIR"]+"/"+myfile)
-											writemsg(_(">>> Deleting invalid distfile. (Improper 404 redirect from server.)\n"))
-											fetched = 0
-											continue
-										except (IOError, OSError):
-											pass
+										) as f:
+										if html404.search(f.read()):
+											try:
+												os.unlink(mysettings["DISTDIR"]+"/"+myfile)
+												writemsg(_(">>> Deleting invalid distfile. (Improper 404 redirect from server.)\n"))
+												fetched = 0
+												continue
+											except (IOError, OSError):
+												pass
 								fetched = 1
 								continue
 							if True:
@@ -1046,7 +1052,8 @@ def fetch(myuris, mysettings, listonly=0, fetchonly=0,
 								# file NOW, for those users who don't have a stable/continuous
 								# net connection. This way we have a chance to try to download
 								# from another mirror...
-								verified_ok,reason = verify_all(mysettings["DISTDIR"]+"/"+myfile, mydigests[myfile])
+								digests = _filter_unaccelarated_hashes(mydigests[myfile])
+								verified_ok, reason = verify_all(myfile_path, digests)
 								if not verified_ok:
 									writemsg(_("!!! Fetched file: %s VERIFY FAILED!\n") % myfile,
 										noiselevel=-1)
@@ -1080,7 +1087,6 @@ def fetch(myuris, mysettings, listonly=0, fetchonly=0,
 								else:
 									eout = EOutput()
 									eout.quiet = mysettings.get("PORTAGE_QUIET", None) == "1"
-									digests = mydigests.get(myfile)
 									if digests:
 										eout.ebegin("%s %s ;-)" % \
 											(myfile, " ".join(sorted(digests))))

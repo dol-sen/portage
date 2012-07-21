@@ -1,4 +1,4 @@
-# Copyright 2010-2011 Gentoo Foundation
+# Copyright 2010-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 """Provides an easy-to-use python interface to Gentoo's metadata.xml file.
@@ -42,13 +42,24 @@ if sys.hexversion < 0x2070000 or \
 else:
 	try:
 		import xml.etree.cElementTree as etree
-	except ImportError:
+	except (SystemExit, KeyboardInterrupt):
+		raise
+	except (ImportError, SystemError, RuntimeError, Exception):
+		# broken or missing xml support
+		# http://bugs.python.org/issue14988
 		import xml.etree.ElementTree as etree
+
+try:
+	from xml.parsers.expat import ExpatError
+except (SystemExit, KeyboardInterrupt):
+	raise
+except (ImportError, SystemError, RuntimeError, Exception):
+	ExpatError = SyntaxError
 
 import re
 import xml.etree.ElementTree
 import portage
-from portage import os
+from portage import os, _unicode_decode
 from portage.util import unique_everseen
 
 class _MetadataTreeBuilder(xml.etree.ElementTree.TreeBuilder):
@@ -196,6 +207,8 @@ class MetaDataXML(object):
 				parser=etree.XMLParser(target=_MetadataTreeBuilder()))
 		except ImportError:
 			pass
+		except ExpatError as e:
+			raise SyntaxError(_unicode_decode("%s") % (e,))
 
 		if isinstance(herds, etree.ElementTree):
 			herds_etree = herds

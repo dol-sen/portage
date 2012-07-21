@@ -1,4 +1,4 @@
-# Copyright 1999-2011 Gentoo Foundation
+# Copyright 1999-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 from __future__ import print_function
@@ -6,6 +6,7 @@ from __future__ import print_function
 import logging
 import signal
 import stat
+import subprocess
 import sys
 import textwrap
 import platform
@@ -67,6 +68,7 @@ options=[
 "--nodeps",       "--noreplace",
 "--nospinner",    "--oneshot",
 "--onlydeps",     "--pretend",
+"--quiet-repo-display",
 "--quiet-unmerge-warn",
 "--resume",
 "--searchdesc",
@@ -75,6 +77,7 @@ options=[
 "--unordered-display",
 "--update",
 "--verbose",
+"--verbose-main-repo-display",
 ]
 
 shortmapping={
@@ -178,11 +181,21 @@ def chk_updated_info_files(root, infodirs, prev_mtimes, retval):
 									raise
 								del e
 					processed_count += 1
-					myso = portage.subprocess_getstatusoutput(
-						"LANG=C LANGUAGE=C /usr/bin/install-info " +
-						"--dir-file=%s/dir %s/%s" % (inforoot, inforoot, x))[1]
+					try:
+						proc = subprocess.Popen(
+							['/usr/bin/install-info',
+							'--dir-file=%s' % os.path.join(inforoot, "dir"),
+							os.path.join(inforoot, x)],
+							env=dict(os.environ, LANG="C", LANGUAGE="C"),
+							stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+					except OSError:
+						myso = None
+					else:
+						myso = _unicode_decode(
+							proc.communicate()[0]).rstrip("\n")
+						proc.wait()
 					existsstr="already exists, for file `"
-					if myso!="":
+					if myso:
 						if re.search(existsstr,myso):
 							# Already exists... Don't increment the count for this.
 							pass
@@ -369,7 +382,9 @@ def post_emerge(myaction, myopts, myfiles,
 	_flush_elog_mod_echo()
 
 	if not vardbapi._pkgs_changed:
-		display_news_notification(root_config, myopts)
+		# GLEP 42 says to display news *after* an emerge --pretend
+		if "--pretend" in myopts:
+			display_news_notification(root_config, myopts)
 		# If vdb state has not changed then there's nothing else to do.
 		return
 
@@ -390,11 +405,10 @@ def post_emerge(myaction, myopts, myfiles,
 			if vdb_lock:
 				vardbapi.unlock()
 
+	display_preserved_libs(vardbapi, myopts)
 	chk_updated_cfg_files(settings['EROOT'], config_protect)
 
 	display_news_notification(root_config, myopts)
-	if retval in (None, os.EX_OK) or (not "--pretend" in myopts):
-		display_preserved_libs(vardbapi, myopts)	
 
 	postemerge = os.path.join(settings["PORTAGE_CONFIGROOT"],
 		portage.USER_CONFIG_PATH, "bin", "post_emerge")
@@ -464,6 +478,7 @@ def insert_optional_args(args):
 		'--package-moves'        : y_or_n,
 		'--quiet'                : y_or_n,
 		'--quiet-build'          : y_or_n,
+		'--rebuild-if-new-slot-abi': y_or_n,
 		'--rebuild-if-new-rev'   : y_or_n,
 		'--rebuild-if-new-ver'   : y_or_n,
 		'--rebuild-if-unbuilt'   : y_or_n,
@@ -689,6 +704,12 @@ def parse_opts(tmpcmdline, silent=False):
 			"choices" : true_y_or_n
 		},
 
+		"--complete-graph-if-new-use": {
+			"help"    : "trigger --complete-graph behavior if USE or IUSE will change for an installed package",
+			"type"    : "choice",
+			"choices" : y_or_n
+		},
+
 		"--complete-graph-if-new-ver": {
 			"help"    : "trigger --complete-graph behavior if an installed package version will change (upgrade or downgrade)",
 			"type"    : "choice",
@@ -731,6 +752,16 @@ def parse_opts(tmpcmdline, silent=False):
 			"help"    : "clean temp files after build failure",
 			"type"    : "choice",
 			"choices" : true_y_or_n
+		},
+
+		"--ignore-built-slot-abi-deps": {
+			"help": "Ignore the SLOT/ABI := operator parts of dependencies that have "
+				"been recorded when packages where built. This option is intended "
+				"only for debugging purposes, and it only affects built packages "
+				"that specify SLOT/ABI := operator dependencies using the "
+				"experimental \"4-slot-abi\" EAPI.",
+			"type": "choice",
+			"choices": y_or_n
 		},
 
 		"--jobs": {
@@ -844,6 +875,15 @@ def parse_opts(tmpcmdline, silent=False):
 			"help"     : "redirect build output to logs",
 			"type"     : "choice",
 			"choices"  : true_y_or_n,
+		},
+
+		"--rebuild-if-new-slot-abi": {
+			"help"     : ("Automatically rebuild or reinstall packages when SLOT/ABI := "
+				"operator dependencies can be satisfied by a newer slot, so that "
+				"older packages slots will become eligible for removal by the "
+				"--depclean action as soon as possible."),
+			"type"     : "choice",
+			"choices"  : true_y_or_n
 		},
 
 		"--rebuild-if-new-rev": {
@@ -993,8 +1033,6 @@ def parse_opts(tmpcmdline, silent=False):
 
 	if myoptions.buildpkg in true_y:
 		myoptions.buildpkg = True
-	else:
-		myoptions.buildpkg = None
 
 	if myoptions.buildpkg_exclude:
 		bad_atoms = _find_bad_atoms(myoptions.buildpkg_exclude, less_strict=True)
@@ -1088,6 +1126,9 @@ def parse_opts(tmpcmdline, silent=False):
 
 	if myoptions.quiet_build in true_y:
 		myoptions.quiet_build = 'y'
+
+	if myoptions.rebuild_if_new_slot_abi in true_y:
+		myoptions.rebuild_if_new_slot_abi = 'y'
 
 	if myoptions.rebuild_if_new_ver in true_y:
 		myoptions.rebuild_if_new_ver = True
@@ -1325,14 +1366,9 @@ def clean_logs(settings):
 
 
 def setconfig_fallback(root_config):
-	from portage._sets.base import DummyPackageSet
-	from portage._sets.files import WorldSelectedSet
-	from portage._sets.profiles import PackagesSystemSet
 	setconfig = root_config.setconfig
-	setconfig.psets['world'] = DummyPackageSet(atoms=['@selected', '@system'])
-	setconfig.psets['selected'] = WorldSelectedSet(root_config.settings['EROOT'])
-	setconfig.psets['system'] = \
-		PackagesSystemSet(root_config.settings.profiles)
+	setconfig._create_default_config()
+	setconfig._parse(update=True)
 	root_config.sets = setconfig.getSets()
 
 def get_missing_sets(root_config):
@@ -1454,6 +1490,12 @@ def expand_set_arguments(myfiles, myaction, root_config):
 					writemsg_level(("emerge: the given set '%s' " + \
 						"contains a non-existent set named '%s'.\n") % \
 						(s, e), level=logging.ERROR, noiselevel=-1)
+					if s in ('world', 'selected') and \
+						SETPREFIX + e.value in sets['selected']:
+						writemsg_level(("Use `emerge --deselect %s%s` to "
+							"remove this set from world_sets.\n") %
+							(SETPREFIX, e,), level=logging.ERROR,
+							noiselevel=-1)
 					return (None, 1)
 				if myaction in unmerge_actions and \
 						not sets[s].supportsOperation("unmerge"):
@@ -1828,7 +1870,7 @@ def emerge_main(args=None):
 						portage_group_warning()
 					if userquery("Would you like to add --pretend to options?",
 						"--ask-enter-invalid" in myopts) == "No":
-						return 1
+						return 128 + signal.SIGINT
 					myopts["--pretend"] = True
 					del myopts["--ask"]
 				else:
@@ -2012,6 +2054,7 @@ def emerge_main(args=None):
 				level=logging.ERROR, noiselevel=-1)
 			return 1
 
+		# GLEP 42 says to display news *after* an emerge --pretend
 		if "--pretend" not in myopts:
 			display_news_notification(root_config, myopts)
 		retval = action_build(settings, trees, mtimedb,

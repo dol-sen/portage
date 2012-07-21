@@ -1,5 +1,5 @@
 # checksum.py -- core Portage functionality
-# Copyright 1998-2011 Gentoo Foundation
+# Copyright 1998-2012 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 import portage
@@ -9,7 +9,6 @@ from portage import os
 from portage import _encodings
 from portage import _unicode_encode
 import errno
-import platform
 import stat
 import tempfile
 
@@ -61,28 +60,6 @@ class _generate_hash_function(object):
 		f.close()
 
 		return (checksum.hexdigest(), size)
-
-_test_hash_func = False
-if platform.python_implementation() == 'PyPy':
-	def _test_hash_func(constructor):
-		"""
-		Test for PyPy crashes observed with hashlib's ripemd160 and whirlpool
-		functions executed under pypy-1.7 with Python 2.7.1:
-		*** glibc detected *** pypy-c1.7: free(): invalid next size (fast): 0x0b963a38 ***
-		*** glibc detected *** pypy-c1.7: free(): corrupted unsorted chunks: 0x09c490b0 ***
-		"""
-		import random
-		pid = os.fork()
-		if pid == 0:
-			data = list(b'abcdefg')
-			for i in range(10):
-				checksum = constructor()
-				random.shuffle(data)
-				checksum.update(b''.join(data))
-				checksum.hexdigest()
-			os._exit(os.EX_OK)
-		pid, status = os.waitpid(pid, 0)
-		return os.WIFEXITED(status) and os.WEXITSTATUS(status) == os.EX_OK
 
 # Define hash functions, try to use the best module available. Later definitions
 # override earlier ones
@@ -152,12 +129,6 @@ try:
 		except ValueError:
 			pass
 		else:
-			if _test_hash_func and \
-				not _test_hash_func(functools.partial(hashlib.new, hash_name)):
-				portage.util.writemsg("\n!!! hash function appears to "
-					"crash python: %s from %s\n" %
-					(hash_name, "hashlib"), noiselevel=-1)
-				continue
 			globals()['%shash' % local_name] = \
 				_generate_hash_function(local_name.upper(), \
 				functools.partial(hashlib.new, hash_name), \
@@ -166,8 +137,10 @@ try:
 except ImportError:
 	pass
 
+_whirlpool_unaccelerated = False
 if "WHIRLPOOL" not in hashfunc_map:
 	# Bundled WHIRLPOOL implementation
+	_whirlpool_unaccelerated = True
 	from portage.util.whirlpool import new as _new_whirlpool
 	whirlpoolhash = _generate_hash_function("WHIRLPOOL", _new_whirlpool, origin="bundled")
 
@@ -215,7 +188,7 @@ def _perform_md5_merge(x, **kwargs):
 def perform_all(x, calc_prelink=0):
 	mydict = {}
 	for k in hashfunc_map:
-		mydict[k] = perform_checksum(x, hashfunc_map[k], calc_prelink)[0]
+		mydict[k] = perform_checksum(x, k, calc_prelink)[0]
 	return mydict
 
 def get_valid_checksum_keys():
@@ -225,6 +198,24 @@ def get_hash_origin(hashtype):
 	if hashtype not in hashfunc_map:
 		raise KeyError(hashtype)
 	return hashorigin_map.get(hashtype, "unknown")
+
+def _filter_unaccelarated_hashes(digests):
+	"""
+	If multiple digests are available and some are unaccelerated,
+	then return a new dict that omits the unaccelerated ones. This
+	allows extreme performance problems like bug #425046 to be
+	avoided whenever practical, especially for cases like stage
+	builds where acceleration may not be available for some hashes
+	due to minimization of dependencies.
+	"""
+	if _whirlpool_unaccelerated and "WHIRLPOOL" in digests:
+		verifiable_hash_types = set(digests).intersection(hashfunc_map)
+		verifiable_hash_types.discard("size")
+		if len(verifiable_hash_types) > 1:
+			digests = dict(digests)
+			digests.pop("WHIRLPOOL")
+
+	return digests
 
 def verify_all(filename, mydict, calc_prelink=0, strict=0):
 	"""
