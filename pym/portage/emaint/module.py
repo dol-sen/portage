@@ -31,6 +31,7 @@ class Module(object):
 		self.name = name
 		self._namepath = namepath
 		self.kids_names = []
+		self.kids = {}
 		self.initialized = self._initialize()
 
 	def _initialize(self):
@@ -44,9 +45,9 @@ class Module(object):
 			self._module = __import__(mod_name, [],[], ["not empty"])
 			self.valid = True
 		except ImportError as e:
+			print("MODULE; failed import", mod_name, "  error was:",e)
 			return False
 		self.module_spec = self._module.module_spec
-		self.kids = {}
 		for submodule in self.module_spec['provides']:
 			kid = self.module_spec['provides'][submodule]
 			kidname = kid['name']
@@ -111,6 +112,9 @@ class Modules(object):
 		importables = []
 		names = os.listdir(module_dir)
 		for entry in names:
+			# skip any __init__ or __pycache__ files or directories
+			if entry.startswith('__'):
+				continue
 			try:
 				# test for statinfo to ensure it should a real module
 				# it will bail if it errors
