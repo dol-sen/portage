@@ -17,7 +17,7 @@ module_spec = {
 		"longer installed config files in emerge's tracker file",
 	'provides':{
 		'module1': {
-			'name': "cleanconfig",
+			'name': "cleanconfmem",
 			'class': "CleanConfig",
 			'description':  "Discard no longer installed config tracker entries",
 			'functions': ['check', 'fix'],
