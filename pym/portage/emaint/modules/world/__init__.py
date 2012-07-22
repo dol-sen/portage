@@ -10,8 +10,6 @@
 Fixing problems with the "world" file.
 """
 
-from emaint.modules.world.world import WorldHandler
-
 
 module_spec = {
 	'name': 'world',

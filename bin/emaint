@@ -33,10 +33,14 @@ except KeyboardInterrupt:
 	sys.exit(1)
 
 from os import path as osp
+
+# coment out next line for non devlopment-testing
+# helps by providing feedback which import path is being used
 print(osp.join(osp.dirname(osp.dirname(osp.realpath(__file__))), "pym"))
+
 sys.path.insert(0, osp.join(osp.dirname(osp.dirname(osp.realpath(__file__))), "pym"))
 
-from emaint.main import emaint_main
+from portage.emaint.main import emaint_main
 from portage.exception import PermissionDenied
 
 try:

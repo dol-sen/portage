@@ -11,9 +11,9 @@ from optparse import OptionParser, OptionValueError
 
 import portage
 from portage import os
-from emaint.module import Modules
-from emaint.progress import ProgressBar
-from emaint.defaults import DEFAULT_OPTIONS
+from portage.emaint.module import Modules
+from portage.emaint.progress import ProgressBar
+from portage.emaint.defaults import DEFAULT_OPTIONS
 
 class OptionItem(object):
 	"""class to hold module OptionParser options data
@@ -156,7 +156,7 @@ def emaint_main(myargv):
 	os.umask(0o22)
 
 	osp = os.path
-	module_controller = Modules(namepath="emaint.modules")
+	module_controller = Modules(namepath="portage.emaint.modules")
 	modules = module_controller.modules
 	module_names = module_controller.module_names[:]
 	module_names.insert(0, "all")
