@@ -13,7 +13,7 @@ import platform
 import portage
 portage.proxy.lazyimport.lazyimport(globals(),
 	'portage.news:count_unread_news,display_news_notifications',
-	'emaint.modules.logs.logs:CleanLogs',
+	'portage.emaint.modules.logs.logs:CleanLogs',
 )
 from portage import os
 from portage import _encodings
