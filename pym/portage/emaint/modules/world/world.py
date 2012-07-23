@@ -1,5 +1,5 @@
 #!/usr/bin/python -O
-# vim: noet :
+#
 
 from __future__ import print_function
 
