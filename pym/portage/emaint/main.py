@@ -219,5 +219,6 @@ def emaint_main(myargv):
 	# need to pass the parser options dict to the modules
 	# so they are available if needed.
 	task_opts = options.__dict__
+	task_opts['return-messages'] = True
 	taskmaster = TaskHandler(callback=print_results)
 	taskmaster.run_tasks(tasks, func, status, options=task_opts)
