@@ -7,7 +7,8 @@ import warnings
 
 from portage import os, _encodings, _unicode_decode
 from portage.checksum import _hash_filter
-from portage.exception import DigestException, FileNotFound
+from portage.exception import (DigestException, FileNotFound, InvalidSignature,
+	MissingSignature)
 from portage.localization import _
 from portage.output import EOutput
 from portage.util import writemsg
@@ -39,6 +40,9 @@ def digestcheck(myfiles, mysettings, strict=False, justmanifest=None, mf=None):
 	eout = EOutput()
 	eout.quiet = mysettings.get("PORTAGE_QUIET", None) == "1"
 	try:
+		eout.ebegin(_("checking Manifest gpg signature ;-)"))
+		mf.validateSignature(mysettings['ROOT'])
+		eout.eend(0)
 		if not mf.thin and strict and "PORTAGE_PARALLEL_FETCHONLY" not in mysettings:
 			if mf.fhashdict.get("EBUILD"):
 				eout.ebegin(_("checking ebuild checksums ;-)"))
@@ -65,6 +69,16 @@ def digestcheck(myfiles, mysettings, strict=False, justmanifest=None, mf=None):
 				return 0
 			mf.checkFileHashes(ftype, f, hash_filter=hash_filter)
 			eout.eend(0)
+	except InvalidSignature as e:
+		eout.eend(1)
+		writemsg(_("\n!!! The Manifest signature verification failed: %s\n") % str(e),
+			noiselevel=-1)
+		return 0
+	except MissingSignature as e:
+		eout.eend(1)
+		writemsg(_("\n!!! The Manifest was not signed: %s\n") % str(e),
+			noiselevel=-1)
+		return 0
 	except FileNotFound as e:
 		eout.eend(1)
 		writemsg(_("\n!!! A file listed in the Manifest could not be found: %s\n") % str(e),
