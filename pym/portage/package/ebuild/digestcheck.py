@@ -13,6 +13,8 @@ from portage.localization import _
 from portage.output import EOutput
 from portage.util import writemsg
 
+_digestcheck_cache = set()
+
 def digestcheck(myfiles, mysettings, strict=False, justmanifest=None, mf=None):
 	"""
 	Verifies checksums. Assumes all files have been downloaded.
@@ -29,7 +31,11 @@ def digestcheck(myfiles, mysettings, strict=False, justmanifest=None, mf=None):
 
 	if mysettings.get("EBUILD_SKIP_MANIFEST") == "1":
 		return 1
+
 	pkgdir = mysettings["O"]
+	if pkgdir in _digestcheck_cache:
+		return 1
+
 	hash_filter = _hash_filter(mysettings.get("PORTAGE_CHECKSUM_FILTER", ""))
 	if hash_filter.transparent:
 		hash_filter = None
@@ -95,6 +101,7 @@ def digestcheck(myfiles, mysettings, strict=False, justmanifest=None, mf=None):
 	if mf.thin or mf.allow_missing:
 		# In this case we ignore any missing digests that
 		# would otherwise be detected below.
+		_digestcheck_cache.add(pkgdir)
 		return 1
 	# Make sure that all of the ebuilds are actually listed in the Manifest.
 	for f in os.listdir(pkgdir):
@@ -166,4 +173,5 @@ def digestcheck(myfiles, mysettings, strict=False, justmanifest=None, mf=None):
 					os.path.join(filesdir, f), noiselevel=-1)
 				if strict:
 					return 0
+	_digestcheck_cache.add(pkgdir)
 	return 1
