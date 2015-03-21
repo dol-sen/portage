@@ -331,6 +331,7 @@ class RepoConfig(object):
 		if self.disable_manifest:
 			kwds['from_scratch'] = True
 		kwds['find_invalid_path_char'] = self.find_invalid_path_char
+		kwds['sign_manifest'] = self.sign_manifest
 		return manifest.Manifest(*args, **portage._native_kwargs(kwds))
 
 	def update(self, new_repo):
