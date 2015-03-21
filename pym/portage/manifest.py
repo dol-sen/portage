@@ -14,7 +14,7 @@ portage.proxy.lazyimport.lazyimport(globals(),
 	'portage.checksum:hashfunc_map,perform_multiple_checksums,' + \
 		'verify_all,_apply_hash_filter,_filter_unaccelarated_hashes',
 	'portage.repository.config:_find_invalid_path_char',
-	'portage.util:write_atomic',
+	'portage.util:write_atomic', 'gkeys.gkeysinterface:GkeysInterface',
 )
 
 from portage import os
@@ -23,7 +23,8 @@ from portage import _unicode_decode
 from portage import _unicode_encode
 from portage.exception import DigestException, FileNotFound, \
 	InvalidDataType, MissingParameter, PermissionDenied, \
-	PortageException, PortagePackageException
+	PortageException, PortagePackageException, InvalidSignature, \
+	MissingSignature
 from portage.const import (MANIFEST1_HASH_FUNCTIONS, MANIFEST2_HASH_DEFAULTS,
 	MANIFEST2_HASH_FUNCTIONS, MANIFEST2_IDENTIFIERS, MANIFEST2_REQUIRED_HASH)
 from portage.localization import _
@@ -127,7 +128,7 @@ class Manifest(object):
 	def __init__(self, pkgdir, distdir=None, fetchlist_dict=None,
 		manifest1_compat=DeprecationWarning, from_scratch=False, thin=False,
 		allow_missing=False, allow_create=True, hashes=None,
-		find_invalid_path_char=None):
+		find_invalid_path_char=None, sign_manifest=True):
 		""" Create new Manifest instance for package in pkgdir.
 		    Do not parse Manifest file if from_scratch == True (only for internal use)
 			The fetchlist_dict parameter is required only for generation of
@@ -171,6 +172,8 @@ class Manifest(object):
 			self.guessType = guessManifestFileType
 		self.allow_missing = allow_missing
 		self.allow_create = allow_create
+		self.sign_manifest = sign_manifest
+		self.gkeys = None
 
 	def getFullname(self):
 		""" Returns the absolute path to the Manifest file for this instance """
@@ -331,11 +334,19 @@ class Manifest(object):
 	def sign(self):
 		""" Sign the Manifest """
 		raise NotImplementedError()
-	
-	def validateSignature(self):
+
+	def validateSignature(self, root):
 		""" Validate signature on Manifest """
-		raise NotImplementedError()
-	
+		#raise NotImplementedError()
+		if not self.gkeys:
+			self.gkeys = GkeysInterface('portage', root)
+		is_good, has_sig = self.gkeys.verify_file(self.getFullname())
+		if not has_sig and not self.sign_manifest and not self.allow_missing:
+			raise MissingSignature(self.getFullname())
+		if not is_good and self.sign_manifest:
+			raise InvalidSignature(self.getFullname())
+
+
 	def addFile(self, ftype, fname, hashdict=None, ignoreMissing=False):
 		""" Add entry to Manifest optionally using hashdict to avoid recalculation of hashes """
 		if ftype == "AUX" and not fname.startswith("files/"):
