@@ -30,7 +30,7 @@ from portage.localization import _
 from portage import _unicode_decode
 from portage import _unicode_encode
 from portage import _encodings
-from portage import manifest
+from portage.package.ebuild import manifest
 import portage.sync
 
 from gkeys.config import GKeysConfig
