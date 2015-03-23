@@ -129,7 +129,7 @@ class Manifest2Entry(ManifestEntry):
 class Manifest(object):
 	parsers = (parseManifest2,)
 	def __init__(self, pkgdir, distdir=None, fetchlist_dict=None,
-		manifest1_compat=DeprecationWarning, from_scratch=False, thin=False,
+		from_scratch=False, thin=False,
 		allow_missing=False, allow_create=True, hashes=None,
 		find_invalid_path_char=None, sign_manifest=True, gkeys=None):
 		""" Create new Manifest instance for package in pkgdir.
@@ -138,11 +138,6 @@ class Manifest(object):
 			a Manifest (not needed for parsing and checking sums).
 			If thin is specified, then the manifest carries only info for
 			distfiles."""
-
-		if manifest1_compat is not DeprecationWarning:
-			warnings.warn("The manifest1_compat parameter of the "
-				"portage.manifest.Manifest constructor is deprecated.",
-				DeprecationWarning, stacklevel=2)
 
 		if find_invalid_path_char is None:
 			find_invalid_path_char = _find_invalid_path_char
