@@ -352,7 +352,7 @@ class Scheduler(PollScheduler):
 		Use this to free memory at the beginning of _calc_resume_list().
 		After _calc_resume_list(), the _init_graph() method
 		must to be called in order to re-generate the structures that
-		this method destroys. 
+		this method destroys.
 		"""
 		self._blocker_db = None
 		self._set_graph_config(None)
