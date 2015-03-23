@@ -126,6 +126,17 @@ class Manifest2Entry(ManifestEntry):
 			return _unicode_encode(self.__unicode__(),
 				encoding=_encodings['repo.content'], errors='strict')
 
+def getManifest(mysettings):
+	"""creates or retrieves a Manifest instance
+	@return: Manifest class instance
+	"""
+
+	pkgdir = mysettings["O"]
+	repo_config = mysettings.repositories.get_repo_for_location(
+		os.path.dirname(os.path.dirname(pkgdir)))
+	mf = repo_config.load_manifest(pkgdir, mysettings["DISTDIR"])
+	return mf
+
 class Manifest(object):
 	parsers = (parseManifest2,)
 	def __init__(self, pkgdir, distdir=None, fetchlist_dict=None,
