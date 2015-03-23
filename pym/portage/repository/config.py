@@ -334,7 +334,7 @@ class RepoConfig(object):
 		if not self._gkeys:
 			root = '/'
 			self._gkeysConfig = GKeysConfig(root=root, read_configfile=True)
-			self._gkeys = GkeysInterface('portage', root)
+			self._gkeys = GkeysInterface('portage', root, loglevel='INFO')
 		return self._gkeys
 
 	def load_manifest(self, *args, **kwds):
