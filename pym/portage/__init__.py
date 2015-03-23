@@ -78,7 +78,6 @@ try:
 			'check_config_instance,config',
 		'portage.package.ebuild.deprecated_profile_check:' + \
 			'deprecated_profile_check',
-		'portage.package.ebuild.digestcheck:digestcheck',
 		'portage.package.ebuild.digestgen:digestgen',
 		'portage.package.ebuild.fetch:fetch',
 		'portage.package.ebuild.getmaskingreason:getmaskingreason',

@@ -33,6 +33,9 @@ from portage import _encodings
 from portage import manifest
 import portage.sync
 
+from gkeys.config import GKeysConfig
+from gkeys.gkeysinterface import GkeysInterface
+
 if sys.hexversion >= 0x3000000:
 	# pylint: disable=W0622
 	basestring = str
@@ -82,14 +85,14 @@ class RepoConfig(object):
 	__slots__ = ('aliases', 'allow_missing_manifest', 'allow_provide_virtual',
 		'auto_sync', 'cache_formats', 'create_manifest', 'disable_manifest',
 		'eapi', 'eclass_db', 'eclass_locations', 'eclass_overrides',
-		'find_invalid_path_char', 'force', 'format', 'local_config', 'location',
-		'main_repo', 'manifest_hashes', 'masters', 'missing_repo_name',
-		'name', 'portage1_profiles', 'portage1_profiles_compat', 'priority',
-		'profile_formats', 'sign_commit', 'sign_manifest', 'sync_cvs_repo',
-		'sync_depth',
+		'find_invalid_path_char', 'force', 'format', '_gkeys', '_gkeysConfig',
+		'local_config', 'location', 'main_repo', 'manifest_hashes', 'masters',
+		'missing_repo_name', 'name', 'portage1_profiles',
+		'portage1_profiles_compat', 'priority', 'profile_formats',
+		'sign_commit', 'sign_manifest', 'sync_cvs_repo', 'sync_depth',
 		'sync_type', 'sync_umask', 'sync_uri', 'sync_user', 'thin_manifest',
 		'update_changelog', 'user_location', '_eapis_banned',
-		'_eapis_deprecated', '_masters_orig')
+		'_eapis_deprecated', '_masters_orig', '_manifest_cache')
 
 	def __init__(self, name, repo_opts, local_config=True):
 		"""Build a RepoConfig with options in repo_opts
@@ -228,6 +231,9 @@ class RepoConfig(object):
 		self.portage1_profiles_compat = False
 		self.find_invalid_path_char = _find_invalid_path_char
 		self._masters_orig = None
+		self._manifest_cache = {}
+		self._gkeys = None
+		self._gkeysConfig = None
 
 		# Parse layout.conf.
 		if self.location:
@@ -323,7 +329,17 @@ class RepoConfig(object):
 		return next(self.iter_pregenerated_caches(
 			auxdbkeys, readonly=readonly, force=force), None)
 
+	@property
+	def gkeys(self):
+		if not self._gkeys:
+			root = '/'
+			self._gkeysConfig = GKeysConfig(root=root, read_configfile=True)
+			self._gkeys = GkeysInterface('portage', root)
+		return self._gkeys
+
 	def load_manifest(self, *args, **kwds):
+		if args[0] in self._manifest_cache:
+			return self._manifest_cache[args[0]]
 		kwds['thin'] = self.thin_manifest
 		kwds['allow_missing'] = self.allow_missing_manifest
 		kwds['allow_create'] = self.create_manifest
@@ -332,7 +348,13 @@ class RepoConfig(object):
 			kwds['from_scratch'] = True
 		kwds['find_invalid_path_char'] = self.find_invalid_path_char
 		kwds['sign_manifest'] = self.sign_manifest
-		return manifest.Manifest(*args, **portage._native_kwargs(kwds))
+		kwds['gkeys'] = self.gkeys
+		mf = manifest.Manifest(*args, **portage._native_kwargs(kwds))
+		mf.validateSignature()
+		self._manifest_cache[args[0]] = mf
+		return mf
+
+
 
 	def update(self, new_repo):
 		"""Update repository with options in another RepoConfig"""

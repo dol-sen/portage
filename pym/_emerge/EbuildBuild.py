@@ -21,7 +21,7 @@ from portage.util import writemsg
 import portage
 from portage import _encodings, _unicode_decode, _unicode_encode, os
 from portage.output import colorize
-from portage.package.ebuild.digestcheck import digestcheck
+from portage.package.ebuild.manifest import getManifest
 from portage.package.ebuild.digestgen import digestgen
 from portage.package.ebuild.doebuild import _check_temp_dir
 from portage.package.ebuild._spawn_nofetch import spawn_nofetch
@@ -104,7 +104,8 @@ class EbuildBuild(CompositeTask):
 			quiet_setting = settings.get('PORTAGE_QUIET')
 			settings['PORTAGE_QUIET'] = '1'
 			try:
-				success = digestcheck([], settings, strict=True)
+				mf = getManifest(settings)
+				success = mf.digestcheck([], settings, strict=True)
 			finally:
 				if quiet_setting:
 					settings['PORTAGE_QUIET'] = quiet_setting

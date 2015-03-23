@@ -30,7 +30,7 @@ from portage.util import ensure_dirs, writemsg, writemsg_level
 from portage.util.SlotObject import SlotObject
 from portage.util._async.SchedulerInterface import SchedulerInterface
 from portage.util._eventloop.EventLoop import EventLoop
-from portage.package.ebuild.digestcheck import digestcheck
+from portage.package.ebuild.manifest import getManifest
 from portage.package.ebuild.digestgen import digestgen
 from portage.package.ebuild.doebuild import (_check_temp_dir,
 	_prepare_self_update)
@@ -714,7 +714,8 @@ class Scheduler(PollScheduler):
 			if ebuild_path is None:
 				raise AssertionError("ebuild not found for '%s'" % x.cpv)
 			quiet_config["O"] = os.path.dirname(ebuild_path)
-			if not digestcheck([], quiet_config, strict=True):
+			mf = getManifest(quiet_config)
+			if not mf.digestcheck([], quiet_config, strict=True):
 				failures |= 1
 
 		if failures:

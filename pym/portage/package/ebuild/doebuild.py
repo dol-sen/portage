@@ -28,7 +28,6 @@ import zlib
 import portage
 portage.proxy.lazyimport.lazyimport(globals(),
 	'portage.package.ebuild.config:check_config_instance',
-	'portage.package.ebuild.digestcheck:digestcheck',
 	'portage.package.ebuild.digestgen:digestgen',
 	'portage.package.ebuild.fetch:fetch',
 	'portage.package.ebuild._ipc.QueryCommand:QueryCommand',
@@ -1065,7 +1064,7 @@ def doebuild(myebuild, mydo, _unused=DeprecationWarning, settings=None, debug=0,
 
 		# See above comment about fetching only when needed
 		if tree == 'porttree' and \
-			not digestcheck(checkme, mysettings, "strict" in features, mf=mf):
+			not mf.digestcheck(checkme, mysettings, "strict" in features):
 			return 1
 
 		# remove PORTAGE_ACTUAL_DISTDIR once cvs/svn is supported via SRC_URI

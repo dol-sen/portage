@@ -14,7 +14,7 @@ portage.proxy.lazyimport.lazyimport(globals(),
 	'portage.checksum:hashfunc_map,perform_multiple_checksums,' + \
 		'verify_all,_apply_hash_filter,_filter_unaccelarated_hashes',
 	'portage.repository.config:_find_invalid_path_char',
-	'portage.util:write_atomic', 'gkeys.gkeysinterface:GkeysInterface',
+	'portage.util:write_atomic',
 )
 
 from portage import os
@@ -28,6 +28,9 @@ from portage.exception import DigestException, FileNotFound, \
 from portage.const import (MANIFEST1_HASH_FUNCTIONS, MANIFEST2_HASH_DEFAULTS,
 	MANIFEST2_HASH_FUNCTIONS, MANIFEST2_IDENTIFIERS, MANIFEST2_REQUIRED_HASH)
 from portage.localization import _
+from portage.checksum import _hash_filter
+from portage.output import EOutput
+from portage.util import writemsg
 
 _manifest_re = re.compile(
 	r'^(' + '|'.join(MANIFEST2_IDENTIFIERS) + r') (.*)( \d+( \S+ \S+)+)$',
@@ -128,7 +131,7 @@ class Manifest(object):
 	def __init__(self, pkgdir, distdir=None, fetchlist_dict=None,
 		manifest1_compat=DeprecationWarning, from_scratch=False, thin=False,
 		allow_missing=False, allow_create=True, hashes=None,
-		find_invalid_path_char=None, sign_manifest=True):
+		find_invalid_path_char=None, sign_manifest=True, gkeys=None):
 		""" Create new Manifest instance for package in pkgdir.
 		    Do not parse Manifest file if from_scratch == True (only for internal use)
 			The fetchlist_dict parameter is required only for generation of
@@ -173,7 +176,8 @@ class Manifest(object):
 		self.allow_missing = allow_missing
 		self.allow_create = allow_create
 		self.sign_manifest = sign_manifest
-		self.gkeys = None
+		self.gkeys = gkeys
+		self._digestcheck = False
 
 	def getFullname(self):
 		""" Returns the absolute path to the Manifest file for this instance """
@@ -335,11 +339,8 @@ class Manifest(object):
 		""" Sign the Manifest """
 		raise NotImplementedError()
 
-	def validateSignature(self, root):
+	def validateSignature(self):
 		""" Validate signature on Manifest """
-		#raise NotImplementedError()
-		if not self.gkeys:
-			self.gkeys = GkeysInterface('portage', root)
 		is_good, has_sig = self.gkeys.verify_file(self.getFullname())
 		if not has_sig and not self.sign_manifest and not self.allow_missing:
 			raise MissingSignature(self.getFullname())
@@ -659,3 +660,152 @@ class Manifest(object):
 		"""Split a category and package, returning a list of [cat, pkg].
 		This is compatible with portage.catsplit()"""
 		return pkg_key.split("/", 1)
+
+	def digestcheck(self, myfiles, mysettings, strict=False):
+		"""
+		Verifies checksums. Assumes all files have been downloaded.
+		@rtype: int
+		@return: 1 on success and 0 on failure
+		"""
+
+		if mysettings.get("EBUILD_SKIP_MANIFEST") == "1":
+			return 1
+
+		if self._digestcheck:
+			return 1
+
+		hash_filter = _hash_filter(mysettings.get("PORTAGE_CHECKSUM_FILTER", ""))
+		if hash_filter.transparent:
+			hash_filter = None
+		eout = EOutput()
+		eout.quiet = mysettings.get("PORTAGE_QUIET", None) == "1"
+		try:
+			#eout.ebegin(_("checking Manifest gpg signature ;-)"))
+			#mf.validateSignature(mysettings['ROOT'])
+			#eout.eend(0)
+			if not self.thin and strict and "PORTAGE_PARALLEL_FETCHONLY" not in mysettings:
+				if self.fhashdict.get("EBUILD"):
+					eout.ebegin(_("checking ebuild checksums ;-)"))
+					self.checkTypeHashes("EBUILD", hash_filter=hash_filter)
+					eout.eend(0)
+				if self.fhashdict.get("AUX"):
+					eout.ebegin(_("checking auxfile checksums ;-)"))
+					self.checkTypeHashes("AUX", hash_filter=hash_filter)
+					eout.eend(0)
+				if self.fhashdict.get("MISC"):
+					eout.ebegin(_("checking miscfile checksums ;-)"))
+					self.checkTypeHashes("MISC", ignoreMissingFiles=True,
+						hash_filter=hash_filter)
+					eout.eend(0)
+			for f in myfiles:
+				eout.ebegin(_("checking %s ;-)") % f)
+				ftype = self.findFile(f)
+				if ftype is None:
+					if self.allow_missing:
+						continue
+					eout.eend(1)
+					writemsg(_("\n!!! Missing digest for '%s'\n") % (f,),
+						noiselevel=-1)
+					return 0
+				self.checkFileHashes(ftype, f, hash_filter=hash_filter)
+				eout.eend(0)
+		except InvalidSignature as e:
+			eout.eend(1)
+			writemsg(_("\n!!! The Manifest signature verification failed: %s\n") % str(e),
+				noiselevel=-1)
+			return 0
+		except MissingSignature as e:
+			eout.eend(1)
+			writemsg(_("\n!!! The Manifest was not signed: %s\n") % str(e),
+				noiselevel=-1)
+			return 0
+		except FileNotFound as e:
+			eout.eend(1)
+			writemsg(_("\n!!! A file listed in the Manifest could not be found: %s\n") % str(e),
+				noiselevel=-1)
+			return 0
+		except DigestException as e:
+			eout.eend(1)
+			writemsg(_("\n!!! Digest verification failed:\n"), noiselevel=-1)
+			writemsg("!!! %s\n" % e.value[0], noiselevel=-1)
+			writemsg(_("!!! Reason: %s\n") % e.value[1], noiselevel=-1)
+			writemsg(_("!!! Got: %s\n") % e.value[2], noiselevel=-1)
+			writemsg(_("!!! Expected: %s\n") % e.value[3], noiselevel=-1)
+			return 0
+		if self.thin or self.allow_missing:
+			# In this case we ignore any missing digests that
+			# would otherwise be detected below.
+			self._digestcheck = True
+			return 1
+		# Make sure that all of the ebuilds are actually listed in the Manifest.
+		for f in os.listdir(self.pkgdir):
+			pf = None
+			if f[-7:] == '.ebuild':
+				pf = f[:-7]
+			if pf is not None and not self.hasFile("EBUILD", f):
+				writemsg(_("!!! A file is not listed in the Manifest: '%s'\n") % \
+					os.path.join(self.pkgdir, f), noiselevel=-1)
+				if strict:
+					return 0
+		# epatch will just grab all the patches out of a directory, so we have to
+		# make sure there aren't any foreign files that it might grab.
+		filesdir = os.path.join(self.pkgdir, "files")
+
+		for parent, dirs, files in os.walk(filesdir):
+			try:
+				parent = _unicode_decode(parent,
+					encoding=_encodings['fs'], errors='strict')
+			except UnicodeDecodeError:
+				parent = _unicode_decode(parent,
+					encoding=_encodings['fs'], errors='replace')
+				writemsg(_("!!! Path contains invalid "
+					"character(s) for encoding '%s': '%s'") \
+					% (_encodings['fs'], parent), noiselevel=-1)
+				if strict:
+					return 0
+				continue
+			for d in dirs:
+				d_bytes = d
+				try:
+					d = _unicode_decode(d,
+						encoding=_encodings['fs'], errors='strict')
+				except UnicodeDecodeError:
+					d = _unicode_decode(d,
+						encoding=_encodings['fs'], errors='replace')
+					writemsg(_("!!! Path contains invalid "
+						"character(s) for encoding '%s': '%s'") \
+						% (_encodings['fs'], os.path.join(parent, d)),
+						noiselevel=-1)
+					if strict:
+						return 0
+					dirs.remove(d_bytes)
+					continue
+				if d.startswith(".") or d == "CVS":
+					dirs.remove(d_bytes)
+			for f in files:
+				try:
+					f = _unicode_decode(f,
+						encoding=_encodings['fs'], errors='strict')
+				except UnicodeDecodeError:
+					f = _unicode_decode(f,
+						encoding=_encodings['fs'], errors='replace')
+					if f.startswith("."):
+						continue
+					f = os.path.join(parent, f)[len(filesdir) + 1:]
+					writemsg(_("!!! File name contains invalid "
+						"character(s) for encoding '%s': '%s'") \
+						% (_encodings['fs'], f), noiselevel=-1)
+					if strict:
+						return 0
+					continue
+				if f.startswith("."):
+					continue
+				f = os.path.join(parent, f)[len(filesdir) + 1:]
+				file_type = self.findFile(f)
+				if file_type != "AUX" and not f.startswith("digest-"):
+					writemsg(_("!!! A file is not listed in the Manifest: '%s'\n") % \
+						os.path.join(filesdir, f), noiselevel=-1)
+					if strict:
+						return 0
+		self._digestcheck = True
+		return 1
