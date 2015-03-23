@@ -1147,8 +1147,8 @@ class portagetree(object):
 class FetchlistDict(Mapping):
 	"""
 	This provide a mapping interface to retrieve fetch lists. It's used
-	to allow portage.manifest.Manifest to access fetch lists via a standard
-	mapping interface rather than use the dbapi directly.
+	to allow portage.package.ebuild.manifest.Manifest to access fetch lists
+	via a standard mapping interface rather than use the dbapi directly.
 	"""
 	def __init__(self, pkgdir, settings, mydbapi):
 		"""pkgdir is a directory containing ebuilds and settings is passed into
