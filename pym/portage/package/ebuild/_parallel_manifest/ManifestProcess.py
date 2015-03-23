@@ -17,7 +17,7 @@ class ManifestProcess(ForkProcess):
 	def _run(self):
 		mf = self.repo_config.load_manifest(
 			os.path.join(self.repo_config.location, self.cp),
-			self.distdir, fetchlist_dict=self.fetchlist_dict)
+			self.distdir, fetchlist_dict=self.fetchlist_dict, sigcheck=False)
 
 		try:
 			mf.create(assumeDistHashesAlways=True)

@@ -349,8 +349,10 @@ class RepoConfig(object):
 		kwds['find_invalid_path_char'] = self.find_invalid_path_char
 		kwds['sign_manifest'] = self.sign_manifest
 		kwds['gkeys'] = self.gkeys
+		sigcheck = kwds.get('sigcheck', True)
 		mf = manifest.Manifest(*args, **portage._native_kwargs(kwds))
-		mf.validateSignature()
+		if sigcheck:
+			mf.validateSignature()
 		self._manifest_cache[args[0]] = mf
 		return mf
 
