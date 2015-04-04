@@ -231,7 +231,6 @@ class RepoConfig(object):
 		self.portage1_profiles_compat = False
 		self.find_invalid_path_char = _find_invalid_path_char
 		self._masters_orig = None
-		self._manifest_cache = {}
 		self._gkeys = None
 		self._gkeysConfig = None
 
@@ -338,8 +337,6 @@ class RepoConfig(object):
 		return self._gkeys
 
 	def load_manifest(self, *args, **kwds):
-		if args[0] in self._manifest_cache:
-			return self._manifest_cache[args[0]]
 		kwds['thin'] = self.thin_manifest
 		kwds['allow_missing'] = self.allow_missing_manifest
 		kwds['allow_create'] = self.create_manifest
@@ -349,11 +346,11 @@ class RepoConfig(object):
 		kwds['find_invalid_path_char'] = self.find_invalid_path_char
 		kwds['sign_manifest'] = self.sign_manifest
 		kwds['gkeys'] = self.gkeys
+		# Only need sigcheck for manifest creation to disable it
 		sigcheck = kwds.get('sigcheck', True)
 		mf = manifest.Manifest(*args, **portage._native_kwargs(kwds))
 		if sigcheck:
 			mf.validateSignature()
-		self._manifest_cache[args[0]] = mf
 		return mf
 
 
