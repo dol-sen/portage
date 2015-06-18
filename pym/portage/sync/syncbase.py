@@ -24,6 +24,11 @@ class SyncBase(object):
 		return "BlankSync"
 
 
+	@staticmethod
+	def specific_options():
+		return ()
+
+
 	def can_progressbar(self, func):
 		return False
 

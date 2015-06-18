@@ -19,6 +19,11 @@ class CVSSync(NewBase):
 		return "CVSSync"
 
 
+	@staticmethod
+	def specific_options():
+		return ("repo",)
+
+
 	def __init__(self):
 		NewBase.__init__(self, "cvs", portage.const.CVS_PACKAGE_ATOM)
 

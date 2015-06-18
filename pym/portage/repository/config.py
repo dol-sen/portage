@@ -86,11 +86,12 @@ class RepoConfig(object):
 		'find_invalid_path_char', 'force', 'format', 'local_config', 'location',
 		'main_repo', 'manifest_hashes', 'masters', 'missing_repo_name',
 		'name', 'portage1_profiles', 'portage1_profiles_compat', 'priority',
-		'profile_formats', 'sign_commit', 'sign_manifest', 'sync_cvs_repo',
+		'profile_formats', 'sign_commit', 'sign_manifest',
 		'sync_depth',
 		'sync_type', 'sync_umask', 'sync_uri', 'sync_user', 'thin_manifest',
 		'update_changelog', 'user_location', '_eapis_banned',
-		'_eapis_deprecated', '_masters_orig')
+		'_eapis_deprecated', '_masters_orig') + \
+		tuple(portage.sync.module_specific_options)
 
 	def __init__(self, name, repo_opts, local_config=True):
 		"""Build a RepoConfig with options in repo_opts
@@ -148,11 +149,6 @@ class RepoConfig(object):
 				priority = None
 		self.priority = priority
 
-		sync_cvs_repo = repo_opts.get('sync-cvs-repo')
-		if sync_cvs_repo is not None:
-			sync_cvs_repo = sync_cvs_repo.strip()
-		self.sync_cvs_repo = sync_cvs_repo or None
-
 		sync_type = repo_opts.get('sync-type')
 		if sync_type is not None:
 			sync_type = sync_type.strip()
@@ -179,6 +175,11 @@ class RepoConfig(object):
 		self.auto_sync = auto_sync
 
 		self.sync_depth = repo_opts.get('sync-depth')
+
+		for o in portage.sync.module_specific_options:
+			odash = o.replace('_', '-')
+			if odash in repo_opts:
+				setattr(self, o, repo_opts[odash])
 
 		# Not implemented.
 		format = repo_opts.get('format')
@@ -407,8 +408,6 @@ class RepoConfig(object):
 			repo_msg.append(indent + "format: " + self.format)
 		if self.user_location:
 			repo_msg.append(indent + "location: " + self.user_location)
-		if self.sync_cvs_repo:
-			repo_msg.append(indent + "sync-cvs-repo: " + self.sync_cvs_repo)
 		if self.sync_type:
 			repo_msg.append(indent + "sync-type: " + self.sync_type)
 		if self.sync_umask:
@@ -426,6 +425,11 @@ class RepoConfig(object):
 		if self.eclass_overrides:
 			repo_msg.append(indent + "eclass-overrides: " + \
 				" ".join(self.eclass_overrides))
+		if self.sync_type is not None:
+			prefix = "sync_" + self.sync_type + "_"
+			for o in portage.sync.module_specific_options:
+				if hasattr(self, o) and o.startswith(prefix) and getattr(self, o):
+					repo_msg.append(indent + o.replace('_', '-') + ": " + getattr(self, o))
 		repo_msg.append("")
 		return "\n".join(repo_msg)
 
@@ -477,6 +481,9 @@ class RepoConfigLoader(object):
 		if prepos['DEFAULT'].masters is not None:
 			default_repo_opts['masters'] = \
 				' '.join(prepos['DEFAULT'].masters)
+		for o in portage.sync.module_specific_options:
+			if hasattr(prepos['DEFAULT'], o):
+				default_repo_opts[o.replace('_', '-')] = getattr(prepos['DEFAULT'], o)
 
 		if overlays:
 			# We need a copy of the original repos.conf data, since we're
@@ -503,10 +510,10 @@ class RepoConfigLoader(object):
 						# Selectively copy only the attributes which
 						# repos.conf is allowed to override.
 						for k in ('aliases', 'auto_sync', 'eclass_overrides',
-							'force', 'masters', 'priority', 'sync_cvs_repo',
+							'force', 'masters', 'priority',
 							'sync_depth',
 							'sync_type', 'sync_umask', 'sync_uri', 'sync_user',
-							):
+							) + tuple(portage.sync.module_specific_options):
 							v = getattr(repos_conf_opts, k, None)
 							if v is not None:
 								setattr(repo, k, v)
@@ -961,8 +968,9 @@ class RepoConfigLoader(object):
 
 	def config_string(self):
 		str_or_int_keys = ("auto_sync", "format", "location",
-			"main_repo", "priority", "sync_cvs_repo",
+			"main_repo", "priority",
 			"sync_type", "sync_umask", "sync_uri", 'sync_user')
+		str_or_int_keys += tuple(portage.sync.module_specific_options)
 		str_tuple_keys = ("aliases", "eclass_overrides", "force")
 		repo_config_tuple_keys = ("masters",)
 		keys = str_or_int_keys + str_tuple_keys + repo_config_tuple_keys
@@ -972,7 +980,7 @@ class RepoConfigLoader(object):
 			for key in sorted(keys):
 				if key == "main_repo" and repo_name != "DEFAULT":
 					continue
-				if getattr(repo, key) is not None:
+				if hasattr(repo, key) and getattr(repo, key) is not None:
 					if key in str_or_int_keys:
 						config_string += "%s = %s\n" % (key.replace("_", "-"), getattr(repo, key))
 					elif key in str_tuple_keys:
