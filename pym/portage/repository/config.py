@@ -90,8 +90,8 @@ class RepoConfig(object):
 		'sync_depth',
 		'sync_type', 'sync_umask', 'sync_uri', 'sync_user', 'thin_manifest',
 		'update_changelog', 'user_location', '_eapis_banned',
-		'_eapis_deprecated', '_masters_orig') + \
-		tuple(portage.sync.module_specific_options)
+		'_eapis_deprecated', '_masters_orig', 'module_specific_options',
+		)
 
 	def __init__(self, name, repo_opts, local_config=True):
 		"""Build a RepoConfig with options in repo_opts
@@ -176,10 +176,7 @@ class RepoConfig(object):
 
 		self.sync_depth = repo_opts.get('sync-depth')
 
-		for o in portage.sync.module_specific_options:
-			odash = o.replace('_', '-')
-			if odash in repo_opts:
-				setattr(self, o, repo_opts[odash])
+		self.module_specific_options = {}
 
 		# Not implemented.
 		format = repo_opts.get('format')
@@ -280,6 +277,10 @@ class RepoConfig(object):
 
 			self._eapis_banned = frozenset(layout_data['eapis-banned'])
 			self._eapis_deprecated = frozenset(layout_data['eapis-deprecated'])
+
+	def set_module_specific_opts(self, opts):
+		for o in opts:
+			self.module_specific_options[o] = repo_opts.get(o, None)
 
 	def eapi_is_banned(self, eapi):
 		return eapi in self._eapis_banned
@@ -425,11 +426,6 @@ class RepoConfig(object):
 		if self.eclass_overrides:
 			repo_msg.append(indent + "eclass-overrides: " + \
 				" ".join(self.eclass_overrides))
-		if self.sync_type is not None:
-			prefix = "sync_" + self.sync_type + "_"
-			for o in portage.sync.module_specific_options:
-				if hasattr(self, o) and o.startswith(prefix) and getattr(self, o):
-					repo_msg.append(indent + o.replace('_', '-') + ": " + getattr(self, o))
 		repo_msg.append("")
 		return "\n".join(repo_msg)
 
@@ -481,9 +477,6 @@ class RepoConfigLoader(object):
 		if prepos['DEFAULT'].masters is not None:
 			default_repo_opts['masters'] = \
 				' '.join(prepos['DEFAULT'].masters)
-		for o in portage.sync.module_specific_options:
-			if hasattr(prepos['DEFAULT'], o):
-				default_repo_opts[o.replace('_', '-')] = getattr(prepos['DEFAULT'], o)
 
 		if overlays:
 			# We need a copy of the original repos.conf data, since we're
@@ -513,7 +506,7 @@ class RepoConfigLoader(object):
 							'force', 'masters', 'priority',
 							'sync_depth',
 							'sync_type', 'sync_umask', 'sync_uri', 'sync_user',
-							) + tuple(portage.sync.module_specific_options):
+							) + portage.sync.module_specific_options(repo, logging):
 							v = getattr(repos_conf_opts, k, None)
 							if v is not None:
 								setattr(repo, k, v)
@@ -605,6 +598,8 @@ class RepoConfigLoader(object):
 				optdict[oname] = parser.get(sname, oname)
 
 			repo = RepoConfig(sname, optdict, local_config=local_config)
+			repo.set_module_specific_opts(
+				portage.sync.module_specific_options(repo, logging))
 
 			# Perform repos.conf sync variable validation
 			portage.sync.validate_config(repo, logging)
@@ -635,8 +630,8 @@ class RepoConfigLoader(object):
 			# deprecated portdir_sync
 			portdir_sync = settings.get("SYNC", "")
 
-		default_opts['sync-rsync-extra-opts'] = \
-			settings.get("PORTAGE_RSYNC_EXTRA_OPTS", None)
+		#default_opts['sync-rsync-extra-opts'] = \
+		#	settings.get("PORTAGE_RSYNC_EXTRA_OPTS", None)
 
 		try:
 			self._parse(paths, prepos, ignored_map,
@@ -974,7 +969,7 @@ class RepoConfigLoader(object):
 		str_or_int_keys = ("auto_sync", "format", "location",
 			"main_repo", "priority",
 			"sync_type", "sync_umask", "sync_uri", 'sync_user')
-		str_or_int_keys += tuple(portage.sync.module_specific_options)
+		#str_or_int_keys += self.module_specific_options()
 		str_tuple_keys = ("aliases", "eclass_overrides", "force")
 		repo_config_tuple_keys = ("masters",)
 		keys = str_or_int_keys + str_tuple_keys + repo_config_tuple_keys

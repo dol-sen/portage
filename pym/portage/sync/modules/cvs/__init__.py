@@ -40,6 +40,7 @@ module_spec = {
 					'exists and is a valid CVS repository',
 			},
 			'validate_config': CheckCVSConfig,
+			'module_specific_options': ("sync_cvs_repo",),
 		}
 	}
 }
