@@ -44,11 +44,6 @@ class RsyncSync(NewBase):
 		return "RsyncSync"
 
 
-	@staticmethod
-	def specific_options():
-		return ("extra-opts",)
-
-
 	def __init__(self):
 		NewBase.__init__(self, "rsync", RSYNC_PACKAGE_ATOM)
 
@@ -78,9 +73,10 @@ class RsyncSync(NewBase):
 		self.rsync_opts = self._rsync_opts_extend(opts, rsync_opts)
 
 		self.extra_rsync_opts = list()
-		if self.repo.sync_rsync_extra_opts is not None:
+		extra_opts = self.repo.module_specific_options['sync_rsync_extra_opts']
+		if extra_opts is not None:
 			self.extra_rsync_opts.extend(portage.util.shlex_split(
-				self.repo.sync_rsync_extra_opts))
+				extra_opts))
 
 		# Real local timestamp file.
 		self.servertimestampfile = os.path.join(
