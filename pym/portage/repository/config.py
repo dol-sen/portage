@@ -277,9 +277,11 @@ class RepoConfig(object):
 
 			self._eapis_banned = frozenset(layout_data['eapis-banned'])
 			self._eapis_deprecated = frozenset(layout_data['eapis-deprecated'])
+		print("~~~~~~~~~~~~~~~  RESET", self)
 
 	def set_module_specific_opt(self, opt, val):
 		self.module_specific_options[opt] = val
+		print("!!!!!!!!!!", opt, self.module_specific_options[opt])
 
 	def eapi_is_banned(self, eapi):
 		return eapi in self._eapis_banned
@@ -362,6 +364,7 @@ class RepoConfig(object):
 
 	@staticmethod
 	def _read_valid_repo_name(repo_path):
+		print("QQQQQQQQQQQQQQ")
 		name, missing = RepoConfig._read_repo_name(repo_path)
 		# We must ensure that the name conforms to PMS 3.1.5
 		# in order to avoid InvalidAtom exceptions when we
@@ -498,6 +501,7 @@ class RepoConfigLoader(object):
 					(base_priority == 0 and ov is portdir):
 					repo_opts = default_repo_opts.copy()
 					repo_opts['location'] = ov
+					print("NNNNNNNNNNN")
 					repo = RepoConfig(None, repo_opts, local_config=local_config)
 					# repos_conf_opts contains options from repos.conf
 					repos_conf_opts = repos_conf.get(repo.name)
@@ -591,6 +595,7 @@ class RepoConfigLoader(object):
 			else:
 				raise TypeError("Unsupported type %r of element %r of 'paths' argument" % (type(p), p))
 
+		print("PPPPPPPPPPP")
 		prepos['DEFAULT'] = RepoConfig("DEFAULT",
 			parser.defaults(), local_config=local_config)
 
@@ -600,8 +605,11 @@ class RepoConfigLoader(object):
 				optdict[oname] = parser.get(sname, oname)
 
 			repo = RepoConfig(sname, optdict, local_config=local_config)
+			print("$$$$$$$$$$$", portage.sync.module_specific_options(repo))
 			for o in portage.sync.module_specific_options(repo):
+				print("%%%%%%%%%%", o, sname)
 				if parser.has_option(sname, o):
+					print("^^^^^^^^^", parser.get(sname, o))
 					repo.set_module_specific_opt(o, parser.get(sname, o))
 
 			# Perform repos.conf sync variable validation
@@ -648,6 +656,7 @@ class RepoConfigLoader(object):
 			# exceptions) after it has thrown an error, so use empty
 			# config and try to fall back to PORTDIR{,_OVERLAY}.
 			prepos.clear()
+			print("IIIIIIIIIIIII")
 			prepos['DEFAULT'] = RepoConfig('DEFAULT',
 				{}, local_config=settings.local_config)
 			location_map.clear()
@@ -1009,6 +1018,7 @@ def load_repository_config(settings, extra_files=None):
 def _get_repo_name(repo_location, cached=None):
 	if cached is not None:
 		return cached
+	print("GGGGGGGGGGGG")
 	name, missing = RepoConfig._read_repo_name(repo_location)
 	if missing:
 		return None

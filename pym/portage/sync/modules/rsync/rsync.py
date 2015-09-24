@@ -76,12 +76,13 @@ class RsyncSync(NewBase):
 		else:
 			rsync_opts = self._validate_rsync_opts(rsync_opts, syncuri)
 		self.rsync_opts = self._rsync_opts_extend(opts, rsync_opts)
-
+		print("((((((((", self.repo)
 		self.extra_rsync_opts = list()
 		if self.repo.module_specific_options.get('sync-rsync-extra-opts'):
 			self.extra_rsync_opts.extend(portage.util.shlex_split(
 				self.repo.module_specific_options['sync-rsync-extra-opts']))
-
+		print("*********", self.extra_rsync_opts, self.repo.module_specific_options)
+		sys.exit()
 		# Real local timestamp file.
 		self.servertimestampfile = os.path.join(
 			self.repo.location, "metadata", "timestamp.chk")
