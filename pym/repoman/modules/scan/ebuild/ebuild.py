@@ -166,7 +166,8 @@ class Ebuild(ScanBase):
 		@param checkdir: current package directory path
 		@param xpkg: current package directory being checked
 		@param validity_future: Future instance
-		@returns: dictionary, including {pkgs, can_force}
+		@param can_force: boolean
+		@returns: bolean
 		'''
 		checkdirlist = kwargs.get('checkdirlist').get()
 		checkdir = kwargs.get('checkdir')
@@ -208,6 +209,7 @@ class Ebuild(ScanBase):
 				if not portage.eapi_is_supported(myaux["EAPI"]):
 					fuse.set(False, ignore_InvalidState=True)
 					self.qatracker.add_error("EAPI.unsupported", os.path.join(xpkg, y))
+					self._abandon_ship(can_force)
 					continue
 				pkgs[pf] = Package(
 					cpv=cpv, metadata=myaux, root_config=self.root_config,
@@ -219,13 +221,20 @@ class Ebuild(ScanBase):
 			# Do not try to do any more QA checks on this package since missing
 			# metadata leads to false positives for several checks, and false
 			# positives confuse users.
-			self.continue_ = True
-			can_force.set(False, ignore_InvalidState=True)
+			self._abandon_ship(can_force)
 		self.pkgs = pkgs
 		# set our updated data
 		dyn_pkgs = kwargs.get('pkgs')
 		dyn_pkgs.set(pkgs)
 		return self.continue_
+
+	def _abandon_ship(self, can_force):
+		'''Internal function to set some important return values
+
+		@param can_force: boolean
+		'''
+		self.continue_ = True
+		can_force.set(False, ignore_InvalidState=True)
 
 	@property
 	def runInPkgs(self):

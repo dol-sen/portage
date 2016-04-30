@@ -336,8 +336,15 @@ class Scanner(object):
 							# Do not try to do any more QA checks on this package since missing
 							# metadata leads to false positives for several checks, and false
 							# positives confuse users.
+							logging.debug("xpkg function loop, continue triggered from function: %s",
+								func)
 							xpkg_continue = True
 							break
+				if not dynamic_data['validity_future'].get() and xpkg_continue:
+					logging.debug("Invalid ebuild detected...Aborting")
+					break
+				elif xpkg_continue:
+					continue
 
 			if xpkg_continue:
 				continue
