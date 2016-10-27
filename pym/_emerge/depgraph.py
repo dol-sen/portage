@@ -8239,7 +8239,7 @@ class depgraph(object):
 						# If the directory is empty add a file with name
 						# pattern file_name.default
 						if last_file_path == None:
-								last_file_path=file_path+"/" + file_name + ".default"
+								last_file_path=file_path + "/autonmask"
 								with open(last_file_path,"a+") as default:
 										default.write("# " + file_name)
 
